@@ -1,0 +1,30 @@
+{
+  "name": "cognitive-mirror",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Second Brain PKM — local-first self-managing knowledge graph with interactive (MCP) and autonomous (API daemon) reasoning paths.",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "setup:ollama": "docker exec cm-ollama ollama pull ${EMBED_MODEL:-nomic-embed-text}",
+    "dev": "concurrently -n graph,ingest,daemon,mcp -c blue,green,magenta,cyan \"pnpm --filter @cm/graph-core dev\" \"pnpm --filter @cm/ingestion dev\" \"pnpm --filter @cm/reasoning-daemon dev\" \"pnpm --filter @cm/mcp-server dev\"",
+    "seed": "pnpm --filter @cm/ingestion seed",
+    "reset": "pnpm --filter @cm/graph-core reset && rm -f .data/queue.sqlite .data/queue.sqlite-shm .data/queue.sqlite-wal && echo 'fresh start — graph + queue cleared'",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "concurrently": "^9.1.2",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

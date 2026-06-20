@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Cognitive Mirror — YouTube capture",
+  "version": "0.1.0",
+  "description": "Send the current YouTube video (title, channel, description, open transcript) to your second brain.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://www.youtube.com/*"
+  ],
+  "action": { "default_popup": "popup.html", "default_title": "Capture video" },
+  "options_page": "options.html"
+}

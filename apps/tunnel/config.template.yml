@@ -1,0 +1,9 @@
+# cloudflared config template (Phase 0). Copy to ~/.cloudflared/config.yml and fill in.
+# Outbound-only; no inbound router ports (design §4 / D2).
+tunnel: <TUNNEL_UUID>
+credentials-file: /Users/<you>/.cloudflared/<TUNNEL_UUID>.json
+
+ingress:
+  - hostname: mcp.example.com
+    service: http://127.0.0.1:4003 # MCP server (see MCP_PORT)
+  - service: http_status:404

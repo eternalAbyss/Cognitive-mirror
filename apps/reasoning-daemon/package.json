@@ -1,0 +1,30 @@
+{
+  "name": "@cm/reasoning-daemon",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "brief": "tsx src/brief-run.ts",
+    "maintain": "tsx src/maintain-run.ts",
+    "build": "tsup src/index.ts --format esm --clean",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.104.0",
+    "@cm/embeddings": "workspace:*",
+    "@cm/graph-client": "workspace:*",
+    "@cm/queue": "workspace:*",
+    "@cm/shared": "workspace:*",
+    "@hono/node-server": "^1.13.7",
+    "hono": "^4.6.16",
+    "node-cron": "^3.0.3",
+    "rss-parser": "^3.13.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node-cron": "^3.0.11"
+  }
+}

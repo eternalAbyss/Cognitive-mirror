@@ -1,0 +1,27 @@
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{background:#ffffff;overflow:hidden}
+@keyframes soft-pulse{0%,100%{opacity:.4}50%{opacity:.85}}
+@keyframes float-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes breathe{0%,100%{box-shadow:0 1px 10px rgba(0,0,0,.04)}50%{box-shadow:0 2px 18px rgba(0,0,0,.09)}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+input::placeholder{color:rgba(0,0,0,.3)}
+input:focus{outline:none}
+::-webkit-scrollbar{display:none}
+
+/* hover / focus states ported from the prototype's style-hover / style-focus */
+.cm-enter{transition:color .2s,border-color .2s}
+.cm-enter:hover{color:#0c0c0c!important;border-color:rgba(0,0,0,.4)!important}
+.cm-input{transition:border-color .25s,box-shadow .25s}
+.cm-input:focus{border-color:rgba(0,0,0,.36)!important;box-shadow:0 12px 40px rgba(0,0,0,.1)!important}
+.cm-submit{transition:background .18s}
+.cm-submit:hover{background:#333!important}
+.cm-continue{transition:background .18s}
+.cm-continue:hover{background:#333!important}
+.cm-park{transition:border-color .18s}
+.cm-park:hover{border-color:rgba(0,0,0,.4)!important}
+.cm-loopclose{transition:border-color .18s}
+.cm-loopclose:hover{border-color:rgba(0,0,0,.28)!important}
+.cm-chip{transition:background .18s,border-color .18s}
+.cm-chip:hover{background:rgba(0,0,0,.07)!important;border-color:rgba(0,0,0,.34)!important}
+.cm-dismiss{transition:border-color .18s,color .18s}
+.cm-dismiss:hover{border-color:rgba(0,0,0,.4)!important;color:#0c0c0c!important}

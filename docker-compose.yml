@@ -1,0 +1,26 @@
+# Local-dev data plane. Everything binds to 127.0.0.1 only.
+# FalkorDB is the single data store (graph + native vector index) — replaces the
+# doc's Kuzu + Qdrant. Ollama serves embeddings. Kuzu is dead (archived Oct 2025).
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: cm-falkordb
+    ports:
+      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:3001:3000" # FalkorDB Browser UI (optional)
+    volumes:
+      - falkordb-data:/data
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: cm-ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  falkordb-data:
+  ollama-data:
