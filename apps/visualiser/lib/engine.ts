@@ -94,6 +94,20 @@ export class CognitiveMirrorEngine {
 
   private mouseX = 0;
   private mouseY = 0;
+  // Direct manipulation: drag to orbit (with release inertia), wheel to zoom,
+  // hover to highlight, click to select. `explore` = the user pressed "Enter the
+  // graph", so we stop the ambient auto-spin and let them inspect freely.
+  private onSelect: ((id: string) => void) | null = null;
+  private dragging = false;
+  private didDrag = false;
+  private lastPX = 0;
+  private lastPY = 0;
+  private downPX = 0;
+  private downPY = 0;
+  private velX = 0;
+  private velY = 0;
+  private explore = false;
+  private hoverId: string | null = null;
   private packets: any[] = [];
   private nodeFlashes: Record<string, any> = {};
   private transients: any[] = [];
@@ -139,10 +153,42 @@ export class CognitiveMirrorEngine {
   private GOLD = "#B07B16";
   private CRIMSON = "#C2557A";
 
+  // Theme: light renders dark-ink dots on a white sphere; dark inverts the
+  // grayscale ramps in the shaders and lightens the data nodes/labels.
+  private dark = false;
+
+  /** Current foreground color for data dots/packets (dark ink vs light on dark). */
+  private _fg(): number {
+    return this.dark ? 0xe6e9f0 : 0x0c0c0c;
+  }
+
   constructor(onView: (v: ViewState) => void) {
     this.onView = onView;
     this.onMove = this.onMove.bind(this);
     this._onResize = this._onResize.bind(this);
+    this._onPointerDown = this._onPointerDown.bind(this);
+    this._onPointerMove = this._onPointerMove.bind(this);
+    this._onPointerUp = this._onPointerUp.bind(this);
+    this._onWheel = this._onWheel.bind(this);
+  }
+
+  /** React passes the node-detail opener so a click on the sphere opens the card. */
+  setOnSelect(cb: (id: string) => void) {
+    this.onSelect = cb;
+  }
+
+  /** Switch the whole WebGL scene between light and dark palettes. */
+  setTheme(dark: boolean) {
+    this.dark = dark;
+    const u = dark ? 1 : 0;
+    if (this.renderer) this.renderer.setClearColor(dark ? 0x0b0d12 : 0xffffff, 1);
+    if (this.dotMat?.uniforms?.uDark) this.dotMat.uniforms.uDark.value = u;
+    if (this.haloMat?.uniforms?.uDark) this.haloMat.uniforms.uDark.value = u;
+    if (this.lineMat?.uniforms?.uDark) this.lineMat.uniforms.uDark.value = u;
+    const fg = this._fg();
+    for (const id in this.sprites) this.sprites[id]?.material?.color?.set(fg);
+    this._applyTint();
+    this._rebuildLabels();
   }
 
   // ── lifecycle ──────────────────────────────────────────────────────────────
@@ -154,6 +200,10 @@ export class CognitiveMirrorEngine {
     this._applyTint();
     window.addEventListener("mousemove", this.onMove);
     window.addEventListener("resize", this._onResize);
+    window.addEventListener("pointerdown", this._onPointerDown);
+    window.addEventListener("pointermove", this._onPointerMove);
+    window.addEventListener("pointerup", this._onPointerUp);
+    window.addEventListener("wheel", this._onWheel, { passive: false });
     const center = document.getElementById("cm-center");
     if (center) center.style.transform = "translateX(-50%)";
     const mount = document.getElementById("cm-canvas-mount");
@@ -167,6 +217,11 @@ export class CognitiveMirrorEngine {
     this._timers.forEach((id) => clearTimeout(id));
     window.removeEventListener("mousemove", this.onMove);
     window.removeEventListener("resize", this._onResize);
+    window.removeEventListener("pointerdown", this._onPointerDown);
+    window.removeEventListener("pointermove", this._onPointerMove);
+    window.removeEventListener("pointerup", this._onPointerUp);
+    window.removeEventListener("wheel", this._onWheel);
+    document.body.style.cursor = "";
     if (this.renderer) {
       this.renderer.dispose();
       this.renderer = null;
@@ -213,6 +268,26 @@ export class CognitiveMirrorEngine {
   }
   flash(id: string, pk = 2) {
     if (this.nmap[id]) this._flash(id, pk, performance.now() / 1000);
+  }
+
+  /** "Enter the graph": drop into free-orbit inspection — pull in, stop the ambient
+   *  spin, unblur — so drag/zoom/click feel like handling a real object. */
+  enterGraph() {
+    this.explore = true;
+    this.targetCamZ = this.reduceMotion ? 5.0 : 4.6;
+    const mount = document.getElementById("cm-canvas-mount");
+    if (mount) mount.style.filter = "blur(0px)";
+  }
+
+  exitGraph() {
+    this.explore = false;
+    this.targetCamZ = 5.8;
+    this.hoverId = null;
+    this.velX = this.velY = 0;
+    document.body.style.cursor = "";
+    const mount = document.getElementById("cm-canvas-mount");
+    if (mount) mount.style.filter = "blur(0.35px)";
+    if (this.state.queryState === "idle") this.setState({ callout: null });
   }
 
   /** When a query had no match, research it live on the web → new notes spawn on the sphere. */
@@ -294,11 +369,11 @@ export class CognitiveMirrorEngine {
     this.clusterIndex.set(key, idx);
     const T = this.T;
     const dir = new T.Vector3(Math.sin(d.pc) * Math.cos(d.tc), Math.cos(d.pc), Math.sin(d.pc) * Math.sin(d.tc));
-    const sp = new T.Sprite(new T.SpriteMaterial({ map: this.labelTex(key, 32, "#8a8a8a"), transparent: true, opacity: 0.5, depthTest: false, depthWrite: false }));
+    const sp = new T.Sprite(new T.SpriteMaterial({ map: this.labelTex(key, 32, this._labelCol("cluster")), transparent: true, opacity: 0.5, depthTest: false, depthWrite: false }));
     sp.position.copy(dir.clone().multiplyScalar(this.R * 1.34));
     sp.scale.set(1.3, 0.2, 1);
     this.group.add(sp);
-    this.labels.push({ sprite: sp, dir });
+    this.labels.push({ sprite: sp, dir, text: key, size: 32, kind: "cluster" });
     return idx;
   }
 
@@ -325,20 +400,21 @@ export class CognitiveMirrorEngine {
     const pos = new T.Vector3(best[0], best[1], best[2]);
     this.nmap[n.id] = { pos, cl: ci };
     this.nodeMeta[n.id] = n;
-    const sp = new T.Sprite(new T.SpriteMaterial({ map: this._sharedDot(), color: 0x0c0c0c, transparent: true, opacity: 1, depthTest: false, depthWrite: false }));
+    const sp = new T.Sprite(new T.SpriteMaterial({ map: this._sharedDot(), color: this._fg(), transparent: true, opacity: 1, depthTest: false, depthWrite: false }));
     sp.position.copy(pos);
     sp.scale.setScalar(spawn ? 0.01 : 0.12);
     this.group.add(sp);
     this.sprites[n.id] = sp;
     if (LABELLED_TYPES.has(n.type) && this.labelledCount < 60) {
       this.labelledCount++;
-      const lab = new T.Sprite(new T.SpriteMaterial({ map: this.labelTex(n.title, 24, n.type === "Insight" ? "#9a7b2a" : "#3a3a3a"), transparent: true, opacity: 0.7, depthTest: false, depthWrite: false }));
+      const kind = n.type === "Insight" ? "insight" : "node";
+      const lab = new T.Sprite(new T.SpriteMaterial({ map: this.labelTex(n.title, 24, this._labelCol(kind)), transparent: true, opacity: 0.7, depthTest: false, depthWrite: false }));
       const off = dir.clone().multiplyScalar(this.R + 0.34);
       off.y += 0.12;
       lab.position.copy(off);
       lab.scale.set(1.0, 0.156, 1);
       this.group.add(lab);
-      this.nodeLabels.push({ sprite: lab, dir });
+      this.nodeLabels.push({ sprite: lab, dir, text: n.title, size: 24, kind });
     }
     if (spawn) this._flash(n.id, 2.8, performance.now() / 1000); // pop into existence
   }
@@ -402,10 +478,20 @@ export class CognitiveMirrorEngine {
     const el = document.getElementById("cm-tint");
     if (!el) return;
     let c: string;
-    if (h >= 5 && h < 11) c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(255,247,232,.5), rgba(250,248,244,0) 70%)";
-    else if (h >= 11 && h < 17) c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(240,246,255,.4), rgba(248,250,252,0) 70%)";
-    else if (h >= 17 && h < 21) c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(250,240,248,.45), rgba(250,247,250,0) 70%)";
-    else c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(234,238,250,.5), rgba(244,246,252,0) 70%)";
+    if (this.dark) {
+      // Additive glow (screen) so the wash reads against the near-black sphere.
+      el.style.mixBlendMode = "screen";
+      if (h >= 5 && h < 11) c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(60,46,24,.5), rgba(0,0,0,0) 70%)";
+      else if (h >= 11 && h < 17) c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(28,40,66,.45), rgba(0,0,0,0) 70%)";
+      else if (h >= 17 && h < 21) c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(52,28,52,.5), rgba(0,0,0,0) 70%)";
+      else c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(24,30,60,.55), rgba(0,0,0,0) 70%)";
+    } else {
+      el.style.mixBlendMode = "multiply";
+      if (h >= 5 && h < 11) c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(255,247,232,.5), rgba(250,248,244,0) 70%)";
+      else if (h >= 11 && h < 17) c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(240,246,255,.4), rgba(248,250,252,0) 70%)";
+      else if (h >= 17 && h < 21) c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(250,240,248,.45), rgba(250,247,250,0) 70%)";
+      else c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(234,238,250,.5), rgba(244,246,252,0) 70%)";
+    }
     el.style.background = c;
   }
 
@@ -415,8 +501,112 @@ export class CognitiveMirrorEngine {
     const h = document.getElementById("cm-hud");
     if (h) h.style.transform = `translate(${this.mouseX * 5}px,${this.mouseY * 3}px)`;
     const c = document.getElementById("cm-center");
-    if (c && this.state.queryState === "idle")
+    if (c && this.state.queryState === "idle" && !this.dragging && !this.explore)
       c.style.transform = `translateX(-50%) rotateY(${-this.mouseX * 2.2}deg) rotateX(${this.mouseY * 1.5}deg)`;
+  }
+
+  // ── direct manipulation (orbit / zoom / select) ───────────────────────────────
+  /** A pointer event over empty sphere space (the HUD backdrop or canvas), not a
+   *  HUD widget — so dragging a card or clicking a button never moves the sphere. */
+  private _isSphereSpace(e: { target: EventTarget | null }): boolean {
+    const t = e.target as HTMLElement | null;
+    if (!t) return false;
+    return t.id === "cm-hud" || t.id === "cm-canvas-mount" || t.id === "cm-tint" || t.tagName === "CANVAS";
+  }
+
+  private _busy(): boolean {
+    return this.state.queryState === "querying" || this.state.queryState === "returning";
+  }
+
+  private _onPointerDown(e: PointerEvent) {
+    if (this._busy() || !this._isSphereSpace(e)) return;
+    this.dragging = true;
+    this.didDrag = false;
+    this.downPX = this.lastPX = e.clientX;
+    this.downPY = this.lastPY = e.clientY;
+    this.velX = this.velY = 0;
+  }
+
+  private _onPointerMove(e: PointerEvent) {
+    if (this.dragging) {
+      const dx = e.clientX - this.lastPX, dy = e.clientY - this.lastPY;
+      this.lastPX = e.clientX;
+      this.lastPY = e.clientY;
+      if (Math.abs(e.clientX - this.downPX) + Math.abs(e.clientY - this.downPY) > 4) this.didDrag = true;
+      const k = 0.006;
+      this._rotateGroup(dx * k, dy * k);
+      this.velX = dx * k;
+      this.velY = dy * k;
+      return;
+    }
+    if (this._busy()) return;
+    this._updateHover(e);
+  }
+
+  private _onPointerUp(e: PointerEvent) {
+    if (this.dragging && !this.didDrag && this._isSphereSpace(e)) {
+      // a clean click (not a drag) selects the nearest node under the cursor
+      const id = this._pickNode(e.clientX, e.clientY);
+      if (id) {
+        this.flash(id, 2.4);
+        this.onSelect?.(id);
+      }
+    }
+    this.dragging = false;
+  }
+
+  private _onWheel(e: WheelEvent) {
+    if (this._busy() || !this._isSphereSpace(e)) return;
+    e.preventDefault();
+    const step = e.deltaY > 0 ? 0.45 : -0.45;
+    this.targetCamZ = Math.max(3.0, Math.min(9.0, this.targetCamZ + step));
+  }
+
+  /** Trackball-style world-space rotation: yaw about world-Y, pitch about world-X. */
+  private _rotateGroup(yaw: number, pitch: number) {
+    const T = this.T;
+    const qx = new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), yaw);
+    const qy = new T.Quaternion().setFromAxisAngle(new T.Vector3(1, 0, 0), pitch);
+    this.group.quaternion.premultiply(qx).premultiply(qy);
+  }
+
+  /** Nearest front-facing node within a pixel radius of (cx,cy), or null. */
+  private _pickNode(cx: number, cy: number): string | null {
+    if (!this.renderer || !this.cam || !this.group) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const v = new this.T.Vector3();
+    let best: string | null = null;
+    let bestD = 24 * 24; // px² hit radius
+    for (const id in this.sprites) {
+      const n = this.nmap[id];
+      if (!n) continue;
+      const wp = n.pos.clone().applyQuaternion(this.group.quaternion);
+      // skip nodes on the far side of the sphere
+      if (wp.clone().normalize().dot(this.cam.position.clone().sub(wp).normalize()) < 0) continue;
+      v.copy(wp).project(this.cam);
+      if (v.z >= 1) continue;
+      const sx = (v.x * 0.5 + 0.5) * rect.width + rect.left;
+      const sy = (-v.y * 0.5 + 0.5) * rect.height + rect.top;
+      const dx = sx - cx, dy = sy - cy, d = dx * dx + dy * dy;
+      if (d < bestD) {
+        bestD = d;
+        best = id;
+      }
+    }
+    return best;
+  }
+
+  private _updateHover(e: PointerEvent) {
+    const id = this._isSphereSpace(e) ? this._pickNode(e.clientX, e.clientY) : null;
+    if (id === this.hoverId) return;
+    this.hoverId = id;
+    document.body.style.cursor = id ? "pointer" : "";
+    if (id) {
+      const m = this.nodeMeta[id];
+      if (m) this.setState({ callout: { id, tag: m.title, type: (m.type || "").toUpperCase(), line: (m.summary || "").slice(0, 120) } });
+    } else if (this.state.queryState === "idle") {
+      this.setState({ callout: null });
+    }
   }
 
   private _onResize() {
@@ -505,13 +695,34 @@ export class CognitiveMirrorEngine {
     try {
       x.letterSpacing = "4px";
     } catch (e) {}
-    x.shadowColor = "rgba(255,255,255,0.95)";
+    // Glow behind the text matches the background so labels stay legible on the
+    // sphere in both themes (light halo on white, dark halo on near-black).
+    x.shadowColor = this.dark ? "rgba(8,10,14,0.95)" : "rgba(255,255,255,0.95)";
     x.shadowBlur = 10;
     x.fillStyle = col;
     const t = (text || "").toUpperCase().slice(0, 28);
     x.fillText(t, 256, 42);
     x.fillText(t, 256, 42);
     return new this.T.CanvasTexture(c);
+  }
+
+  /** Theme-aware label text color, by label kind. */
+  private _labelCol(kind: "cluster" | "insight" | "node"): string {
+    if (kind === "cluster") return this.dark ? "#9aa0ab" : "#8a8a8a";
+    if (kind === "insight") return this.dark ? "#d9b35a" : "#9a7b2a";
+    return this.dark ? "#aeb4bf" : "#3a3a3a";
+  }
+
+  /** Regenerate every label texture for the current theme (cluster + node labels). */
+  private _rebuildLabels() {
+    for (const l of this.labels.concat(this.nodeLabels)) {
+      if (!l.kind) continue;
+      const tex = this.labelTex(l.text, l.size, this._labelCol(l.kind));
+      const old = l.sprite.material.map;
+      l.sprite.material.map = tex;
+      l.sprite.material.needsUpdate = true;
+      old?.dispose?.();
+    }
   }
 
   // ── scene construction ──────────────────────────────────────────────────────
@@ -528,7 +739,7 @@ export class CognitiveMirrorEngine {
     this.renderer = new T.WebGLRenderer({ canvas: el, antialias: true, preserveDrawingBuffer: true, alpha: false });
     this.renderer.setSize(W, H);
     this.renderer.setPixelRatio(dpr);
-    this.renderer.setClearColor(0xffffff, 1);
+    this.renderer.setClearColor(this.dark ? 0x0b0d12 : 0xffffff, 1);
 
     this.scene = new T.Scene();
     this.cam = new T.PerspectiveCamera(52, W / H, 0.1, 200);
@@ -545,13 +756,14 @@ export class CognitiveMirrorEngine {
   private _dotShader(extraFront: number) {
     const T = this.T;
     return new T.ShaderMaterial({
-      uniforms: { uTex: { value: this.dotTex() }, uScale: { value: this.uScale } },
+      uniforms: { uTex: { value: this.dotTex() }, uScale: { value: this.uScale }, uDark: { value: this.dark ? 1 : 0 } },
       vertexShader: `attribute float aSize; varying float vDepth; uniform float uScale;
         void main(){ vec4 mv=modelViewMatrix*vec4(position,1.0); float dist=-mv.z;
         vDepth=clamp((dist-3.2)/5.0,0.0,1.0); gl_PointSize=aSize*uScale/dist; gl_Position=projectionMatrix*mv; }`,
-      fragmentShader: `uniform sampler2D uTex; varying float vDepth;
+      fragmentShader: `uniform sampler2D uTex; uniform float uDark; varying float vDepth;
         void main(){ float m=texture2D(uTex,gl_PointCoord).a; if(m<0.5) discard;
-        float g=mix(${(0.03 + (extraFront || 0)).toFixed(2)},0.8,vDepth); gl_FragColor=vec4(vec3(g),1.0); }`,
+        float g=mix(${(0.03 + (extraFront || 0)).toFixed(2)},0.8,vDepth);
+        float gd=mix(0.95,0.06,vDepth); g=mix(g,gd,uDark); gl_FragColor=vec4(vec3(g),1.0); }`,
       transparent: false,
       depthTest: true,
       depthWrite: true,
@@ -584,9 +796,12 @@ export class CognitiveMirrorEngine {
 
     const wf = new T.WireframeGeometry(ico);
     this.lineMat = new T.ShaderMaterial({
+      uniforms: { uDark: { value: this.dark ? 1 : 0 } },
       vertexShader: `varying float vDepth; void main(){ vec4 mv=modelViewMatrix*vec4(position,1.0);
         vDepth=clamp((-mv.z-3.2)/5.0,0.0,1.0); gl_Position=projectionMatrix*mv; }`,
-      fragmentShader: `varying float vDepth; void main(){ float g=mix(0.42,0.9,vDepth); float a=mix(0.52,0.07,vDepth); gl_FragColor=vec4(vec3(g),a); }`,
+      fragmentShader: `uniform float uDark; varying float vDepth;
+        void main(){ float g=mix(0.42,0.9,vDepth); float gd=mix(0.55,0.14,vDepth); g=mix(g,gd,uDark);
+        float a=mix(0.52,0.07,vDepth); gl_FragColor=vec4(vec3(g),a); }`,
       transparent: true,
       depthTest: false,
       depthWrite: false,
@@ -608,12 +823,13 @@ export class CognitiveMirrorEngine {
     g.setAttribute("aSize", new T.BufferAttribute(new Float32Array(sz), 1));
     g.setAttribute("aShade", new T.BufferAttribute(new Float32Array(shade), 1));
     this.haloMat = new T.ShaderMaterial({
-      uniforms: { uTex: { value: this.dotTex() }, uScale: { value: this.uScale } },
+      uniforms: { uTex: { value: this.dotTex() }, uScale: { value: this.uScale }, uDark: { value: this.dark ? 1 : 0 } },
       vertexShader: `attribute float aSize; attribute float aShade; varying float vD; uniform float uScale;
         void main(){ vec4 mv=modelViewMatrix*vec4(position,1.0); float dist=-mv.z;
         vD=clamp(max((dist-3.2)/5.0, aShade),0.0,1.0); gl_PointSize=aSize*uScale/dist; gl_Position=projectionMatrix*mv; }`,
-      fragmentShader: `uniform sampler2D uTex; varying float vD;
-        void main(){ float m=texture2D(uTex,gl_PointCoord).a; if(m<0.5) discard; float g=mix(0.08,0.9,vD); gl_FragColor=vec4(vec3(g),1.0); }`,
+      fragmentShader: `uniform sampler2D uTex; uniform float uDark; varying float vD;
+        void main(){ float m=texture2D(uTex,gl_PointCoord).a; if(m<0.5) discard;
+        float g=mix(0.08,0.9,vD); float gd=mix(0.9,0.07,vD); g=mix(g,gd,uDark); gl_FragColor=vec4(vec3(g),1.0); }`,
       transparent: false,
       depthTest: true,
       depthWrite: true,
@@ -654,13 +870,21 @@ export class CognitiveMirrorEngine {
     if (this.group) {
       if (this.state.queryState === "querying" && this.focusQuat) {
         this.group.quaternion.slerp(this.focusQuat, 0.07);
-      } else {
+      } else if (this.dragging) {
+        /* rotation is driven live by the pointer-move handler */
+      } else if (Math.abs(this.velX) > 1e-4 || Math.abs(this.velY) > 1e-4) {
+        // fling inertia after releasing a drag
+        this._rotateGroup(this.velX, this.velY);
+        this.velX *= 0.93;
+        this.velY *= 0.93;
+      } else if (!this.explore && !this.reduceMotion) {
+        // ambient auto-spin only when not actively exploring
         if (!this._YAX) this._YAX = new this.T.Vector3(0, 1, 0);
         const qy = new this.T.Quaternion().setFromAxisAngle(this._YAX, dt * rot);
         this.group.quaternion.multiply(qy);
       }
     }
-    const focusing = this.state.queryState !== "idle";
+    const focusing = this.state.queryState !== "idle" || this.dragging || this.explore;
     const mx = focusing ? 0 : this.mouseX, my = focusing ? 0 : this.mouseY;
     this.cam.position.x += (mx * 0.45 - this.cam.position.x) * 0.05;
     this.cam.position.y += (-my * 0.32 - this.cam.position.y) * 0.05;
@@ -710,7 +934,7 @@ export class CognitiveMirrorEngine {
 
   private _mkDot(op: number) {
     const T = this.T;
-    return new T.Sprite(new T.SpriteMaterial({ map: this.dotTex(), color: 0x0c0c0c, transparent: true, opacity: op || 1, depthTest: false, depthWrite: false }));
+    return new T.Sprite(new T.SpriteMaterial({ map: this.dotTex(), color: this._fg(), transparent: true, opacity: op || 1, depthTest: false, depthWrite: false }));
   }
 
   private _tickPackets(now: number) {
@@ -825,7 +1049,7 @@ export class CognitiveMirrorEngine {
     p2.scale.setScalar(0.1);
     this.group.add(p1);
     this.group.add(p2);
-    const ring = new this.T.Sprite(new this.T.SpriteMaterial({ map: this.ringTex(), color: 0x0c0c0c, transparent: true, opacity: 0, depthTest: false, depthWrite: false }));
+    const ring = new this.T.Sprite(new this.T.SpriteMaterial({ map: this.ringTex(), color: this._fg(), transparent: true, opacity: 0, depthTest: false, depthWrite: false }));
     ring.position.copy(mid);
     ring.scale.setScalar(0.1);
     this.group.add(ring);

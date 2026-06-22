@@ -1,27 +1,55 @@
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{background:#ffffff;overflow:hidden}
+
+/* Theme tokens. Colors are stored as raw "r,g,b" triplets so inline styles can
+   wrap them in rgba(var(--token), <alpha>). Light is the original ink-on-paper
+   palette; dark inverts foreground/surfaces while keeping accents readable. */
+:root{
+  --bg:255,255,255;        /* page + canvas background */
+  --ink:12,12,12;          /* primary foreground (text, borders, dots) */
+  --surface:255,255,255;   /* glass panel base */
+  --accent:12,12,12;       /* solid accent (primary buttons) */
+  --accent-h:51,51,51;     /* accent hover */
+  --accent-fg:255,255,255; /* text/icon on accent */
+  --link:10,102,194;       /* hyperlinks */
+}
+[data-theme="dark"]{
+  --bg:11,13,18;
+  --ink:228,231,238;
+  --surface:30,34,42;
+  --accent:230,233,240;
+  --accent-h:205,209,217;
+  --accent-fg:14,16,20;
+  --link:120,176,240;
+}
+
+html,body{background:rgb(var(--bg));overflow:hidden;transition:background .4s ease}
 @keyframes soft-pulse{0%,100%{opacity:.4}50%{opacity:.85}}
 @keyframes float-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+/* centered modals: keep the translate(-50%,-50%) offset so they grow from the
+   center instead of sliding out toward the lower-right corner */
+@keyframes float-in-center{from{opacity:0;transform:translate(-50%,-50%) translateY(12px)}to{opacity:1;transform:translate(-50%,-50%)}}
 @keyframes breathe{0%,100%{box-shadow:0 1px 10px rgba(0,0,0,.04)}50%{box-shadow:0 2px 18px rgba(0,0,0,.09)}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
-input::placeholder{color:rgba(0,0,0,.3)}
+input::placeholder{color:rgba(var(--ink),.3)}
 input:focus{outline:none}
 ::-webkit-scrollbar{display:none}
 
 /* hover / focus states ported from the prototype's style-hover / style-focus */
 .cm-enter{transition:color .2s,border-color .2s}
-.cm-enter:hover{color:#0c0c0c!important;border-color:rgba(0,0,0,.4)!important}
+.cm-enter:hover{color:rgb(var(--ink))!important;border-color:rgba(var(--ink),.4)!important}
 .cm-input{transition:border-color .25s,box-shadow .25s}
-.cm-input:focus{border-color:rgba(0,0,0,.36)!important;box-shadow:0 12px 40px rgba(0,0,0,.1)!important}
+.cm-input:focus{border-color:rgba(var(--ink),.36)!important;box-shadow:0 12px 40px rgba(0,0,0,.1)!important}
 .cm-submit{transition:background .18s}
-.cm-submit:hover{background:#333!important}
+.cm-submit:hover{background:rgb(var(--accent-h))!important}
 .cm-continue{transition:background .18s}
-.cm-continue:hover{background:#333!important}
+.cm-continue:hover{background:rgb(var(--accent-h))!important}
 .cm-park{transition:border-color .18s}
-.cm-park:hover{border-color:rgba(0,0,0,.4)!important}
+.cm-park:hover{border-color:rgba(var(--ink),.4)!important}
 .cm-loopclose{transition:border-color .18s}
-.cm-loopclose:hover{border-color:rgba(0,0,0,.28)!important}
+.cm-loopclose:hover{border-color:rgba(var(--ink),.28)!important}
 .cm-chip{transition:background .18s,border-color .18s}
-.cm-chip:hover{background:rgba(0,0,0,.07)!important;border-color:rgba(0,0,0,.34)!important}
+.cm-chip:hover{background:rgba(var(--ink),.07)!important;border-color:rgba(var(--ink),.34)!important}
 .cm-dismiss{transition:border-color .18s,color .18s}
-.cm-dismiss:hover{border-color:rgba(0,0,0,.4)!important;color:#0c0c0c!important}
+.cm-dismiss:hover{border-color:rgba(var(--ink),.4)!important;color:rgb(var(--ink))!important}
+.cm-theme{transition:border-color .18s,color .18s,background .18s}
+.cm-theme:hover{border-color:rgba(var(--ink),.34)!important;color:rgb(var(--ink))!important}
