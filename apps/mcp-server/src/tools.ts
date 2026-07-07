@@ -13,8 +13,8 @@ const json = (data: unknown) => ({
 /**
  * Interactive tools (design §15 Phase 1) — thin wrappers over the Core Graph
  * Service. Reads emit live events; writes go through the same transactional
- * primitive the daemon uses. Conversation tools (§10) are scaffolded here;
- * cooperative-capture logic is Phase 2.
+ * primitive the daemon uses. Cooperative conversation capture (§10) is
+ * implemented below (checkpoint_conversation / close_conversation).
  */
 export function registerTools(server: McpServer, graph: GraphClient): void {
   server.registerTool(
@@ -31,6 +31,24 @@ export function registerTools(server: McpServer, graph: GraphClient): void {
     async ({ query, k, type }) => {
       const embedding = await embed(query);
       const r = await graph.searchSemantic({ embedding, k, type });
+      emit("search", { query, hits: r.results.length });
+      return json(r.results);
+    },
+  );
+
+  server.registerTool(
+    "search_text",
+    {
+      description:
+        "Keyword search over knowledge nodes by exact terms (names, acronyms, jargon a semantic search may miss). Lexical complement to search_semantic.",
+      inputSchema: {
+        query: z.string().describe("keywords to match in node titles/summaries"),
+        k: z.number().int().positive().max(50).optional(),
+        type: z.enum(NODE_TYPES).optional(),
+      },
+    },
+    async ({ query, k, type }) => {
+      const r = await graph.searchText({ query, k, type });
       emit("search", { query, hits: r.results.length });
       return json(r.results);
     },

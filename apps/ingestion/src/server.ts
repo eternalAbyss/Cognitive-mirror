@@ -7,7 +7,7 @@ import { contentHash } from "./hash.js";
 // Manual POST sources (Apple Shortcuts notes/journal, browser extension, Kindle).
 // GitHub/ArXiv/RSS/trending arrive via the daemon, not this webhook.
 const IngestBody = z.object({
-  kind: z.enum(["note", "journal", "youtube", "kindle_highlight", "generic"]).default("generic"),
+  kind: z.enum(["note", "journal", "youtube", "kindle_highlight", "github_repo", "generic"]).default("generic"),
   title: z.string(),
   text: z.string(),
   source: z.string().default("webhook"),

@@ -1,5 +1,8 @@
 # YouTube capture — browser extension (MV3)
 
+> 📖 Part of Cognitive-mirror — see the [full documentation](../../../documentation.md) for
+> architecture, setup, the API endpoints, and how this fits the whole system.
+
 Sends the current YouTube video (title, channel, description, and the transcript if the transcript
 panel is open) to the ingestion webhook as a `youtube` source (design §2).
 

@@ -14,6 +14,8 @@ export interface MaintenanceReport {
   insights: number;
   archived: number;
   conceptCount: number;
+  /** merge/delete actions on user-edited notes deferred to the approval queue (design §9). */
+  approvalsRequested: number;
 }
 
 /**
@@ -27,6 +29,7 @@ export async function runMaintenance(graph: GraphClient): Promise<MaintenanceRep
   const cfg = loadConfig();
   const report: MaintenanceReport = {
     candidates: 0, merges: 0, contradictions: 0, related: 0, insights: 0, archived: 0, conceptCount: 0,
+    approvalsRequested: 0,
   };
 
   // ── Stage 1 + 2: merge / contradiction gate ────────────────────────────────
@@ -50,9 +53,22 @@ export async function runMaintenance(graph: GraphClient): Promise<MaintenanceRep
         ops.push({ kind: "setSummaryEmbedding", id: c.bId, embedding: await embed(adj.mergedSummary) });
       }
       ops.push({ kind: "tombstone", id: c.aId, survivorId: c.bId }); // a merges into b
-      await graph.execute(ops, `merge: "${c.aTitle}" → "${c.bTitle}" (${adj.reason})`);
+      if (c.aEdited || c.bEdited) {
+        // The user hand-edited one of these — don't merge silently; ask permission
+        // (the ops are fully formed, so approving replays them with no further LLM call).
+        const r = await graph.createApproval({
+          action: "merge",
+          title: `Merge "${c.aTitle}" → "${c.bTitle}"`,
+          detail: adj.reason,
+          ops,
+          subjectIds: [c.aId, c.bId],
+        });
+        if (r.created) report.approvalsRequested++;
+      } else {
+        await graph.execute(ops, `merge: "${c.aTitle}" → "${c.bTitle}" (${adj.reason})`);
+        report.merges++;
+      }
       touched.add(c.aId).add(c.bId);
-      report.merges++;
     } else if (adj.verdict === "contradiction") {
       await graph.execute(
         [{ kind: "createEdge", from: c.aId, to: c.bId, type: "CONTRADICTS", props: { reason: adj.reason } }],
@@ -100,7 +116,9 @@ export async function runMaintenance(graph: GraphClient): Promise<MaintenanceRep
   }
 
   // ── Prune / time-decay archival (§9) ───────────────────────────────────────
-  report.archived = await pruneArchival(graph);
+  const prune = await pruneArchival(graph);
+  report.archived = prune.archived;
+  report.approvalsRequested += prune.approvals;
 
   const { counts } = await graph.counts();
   report.conceptCount = counts.Concept ?? 0;
@@ -113,10 +131,12 @@ export async function runMaintenance(graph: GraphClient): Promise<MaintenanceRep
  * inactivity window unless they're still open or carry a high-value (well-
  * connected) edge. Archived ≠ deleted — restorable indefinitely.
  */
-async function pruneArchival(graph: GraphClient): Promise<number> {
+async function pruneArchival(graph: GraphClient): Promise<{ archived: number; approvals: number }> {
   const cfg = loadConfig();
   const cutoff = Date.now() - cfg.ARCHIVE_INACTIVITY_DAYS * 86_400_000;
+  const now = new Date().toISOString();
   let archived = 0;
+  let approvals = 0;
   for (const type of ["Conversation", "WorldEvent"]) {
     const { nodes } = await graph.listNodes(type, 2000);
     const ops: GraphOp[] = [];
@@ -125,8 +145,22 @@ async function pruneArchival(graph: GraphClient): Promise<number> {
       const last = Date.parse(String(n.props.lastReadAt ?? n.props.updatedAt ?? n.props.createdAt ?? ""));
       const isOpen = typeof n.props.metadata === "string" && n.props.metadata.includes('"status":"open"');
       const highValue = n.degree >= 3; // cross-domain / well-connected → keep
+      const rejectedUntil = String(n.props.cleanupRejectedUntil ?? "");
+      if (rejectedUntil && rejectedUntil > now) continue; // user rejected archiving this recently
       if (id && !isOpen && Number.isFinite(last) && last < cutoff && !highValue) {
-        ops.push({ kind: "softDeleteNode", id });
+        if (n.props.edited) {
+          // Hand-edited note — defer the delete to the approval queue instead of archiving.
+          const r = await graph.createApproval({
+            action: "delete",
+            title: `Archive "${String(n.props.title ?? id)}"`,
+            detail: `stale ${type} (>${cfg.ARCHIVE_INACTIVITY_DAYS}d inactive)`,
+            ops: [{ kind: "softDeleteNode", id }],
+            subjectIds: [id],
+          });
+          if (r.created) approvals++;
+        } else {
+          ops.push({ kind: "softDeleteNode", id });
+        }
       }
     }
     if (ops.length) {
@@ -134,5 +168,5 @@ async function pruneArchival(graph: GraphClient): Promise<number> {
       archived += ops.length;
     }
   }
-  return archived;
+  return { archived, approvals };
 }

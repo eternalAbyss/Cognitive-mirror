@@ -5,11 +5,17 @@ services:
   falkordb:
     image: falkordb/falkordb:latest
     container_name: cm-falkordb
+    # Durable persistence: AOF logs every write (survives any restart, not just
+    # snapshots), and the volume is mounted at FalkorDB's real data dir
+    # (/var/lib/falkordb/data) — NOT /data, which the image does not write to, so
+    # mounting there silently lost data on `docker compose down`.
+    environment:
+      - REDIS_ARGS=--appendonly yes --appendfsync everysec
     ports:
       - "127.0.0.1:6379:6379"
       - "127.0.0.1:3001:3000" # FalkorDB Browser UI (optional)
     volumes:
-      - falkordb-data:/data
+      - falkordb-data:/var/lib/falkordb/data
     restart: unless-stopped
 
   ollama:

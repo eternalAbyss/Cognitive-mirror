@@ -38,9 +38,9 @@ protocol stream stays clean (see `packages/shared/src/logger.ts`).
    **reasoning-daemon (:4005)** for `research_topic`. (`pnpm dev` also runs the HTTP MCP on
    :4003 — harmless; Desktop uses its own stdio subprocess.)
 2. **Fully quit and reopen Claude Desktop** (Cmd-Q, not just close) so it reloads the config.
-3. The **cognitive-mirror** connector appears in Settings → Connectors with 11 tools:
-   `search_semantic`, `search_chunks`, `get_node`, `traverse_from`, `research_topic`,
-   `create_concept`, `relate_nodes`, `create_interest`, `get_resurfacing`,
+3. The **cognitive-mirror** connector appears in Settings → Connectors with 12 tools:
+   `search_semantic`, `search_text`, `search_chunks`, `get_node`, `traverse_from`,
+   `research_topic`, `create_concept`, `relate_nodes`, `create_interest`, `get_resurfacing`,
    `checkpoint_conversation`, `close_conversation`.
 4. Ask things like *"research the latest on retrieval-augmented generation"* (writes notes),
    or *"what does my graph say about X"* (grounded search). To auto-capture chats, tell Claude:
@@ -52,7 +52,7 @@ protocol stream stays clean (see `packages/shared/src/logger.ts`).
   ```bash
   pnpm --filter @cm/mcp-server exec tsx src/verify-stdio.ts
   ```
-  Expect `{ ok: true, count: 11, tools: [...] }`.
+  Expect `{ ok: true, count: 12, tools: [...] }`.
 - Desktop MCP logs: `~/Library/Logs/Claude/mcp-server-cognitive-mirror.log` (and `mcp.log`).
 - If tools error: the backend isn't running — start `pnpm dev`.
 - If the connector doesn't appear: confirm `node` path (`which node`) matches the config; fully

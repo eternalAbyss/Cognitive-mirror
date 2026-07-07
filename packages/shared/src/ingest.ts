@@ -8,6 +8,7 @@ import { z } from "zod";
  */
 export const ENRICH_KINDS = [
   "github_commit",
+  "github_repo",
   "note",
   "journal",
   "youtube",

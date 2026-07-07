@@ -9,22 +9,25 @@
   },
   "packageManager": "pnpm@9.15.4",
   "scripts": {
+    "up": "bash scripts/up.sh",
+    "down": "bash scripts/down.sh",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "setup:ollama": "docker exec cm-ollama ollama pull ${EMBED_MODEL:-nomic-embed-text}",
     "dev": "concurrently -n graph,ingest,daemon,mcp -c blue,green,magenta,cyan \"pnpm --filter @cm/graph-core dev\" \"pnpm --filter @cm/ingestion dev\" \"pnpm --filter @cm/reasoning-daemon dev\" \"pnpm --filter @cm/mcp-server dev\"",
+    "dev:all": "concurrently -n graph,ingest,daemon,mcp,vis -c blue,green,magenta,cyan,yellow \"pnpm --filter @cm/graph-core dev\" \"pnpm --filter @cm/ingestion dev\" \"pnpm --filter @cm/reasoning-daemon dev\" \"pnpm --filter @cm/mcp-server dev\" \"pnpm --filter @cm/visualiser dev\"",
     "seed": "pnpm --filter @cm/ingestion seed",
-    "reset": "pnpm --filter @cm/graph-core reset && rm -f .data/queue.sqlite .data/queue.sqlite-shm .data/queue.sqlite-wal && echo 'fresh start — graph + queue cleared'",
+    "reset": "pnpm --filter @cm/graph-core reset && rm -f .data/queue.sqlite .data/queue.sqlite-shm .data/queue.sqlite-wal .data/budget.json && echo 'fresh start — graph + queue + budget cleared'",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test"
   },
   "devDependencies": {
-    "@types/node": "^22.10.5",
-    "concurrently": "^9.1.2",
-    "tsup": "^8.3.5",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.3",
-    "vitest": "^3.0.5"
+    "@types/node": "^22.20.0",
+    "concurrently": "^9.2.3",
+    "tsup": "^8.5.1",
+    "tsx": "^4.22.4",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.6"
   }
 }

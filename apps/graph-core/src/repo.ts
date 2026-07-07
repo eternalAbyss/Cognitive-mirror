@@ -76,6 +76,46 @@ export async function searchSemantic({
   return rows.map((r) => ({ props: r.props, labels: r.labels, score: r.score }));
 }
 
+/** RediSearch query operators that would otherwise make a raw user phrase a syntax error. */
+function sanitizeFulltext(q: string): string {
+  return q
+    .replace(/[@!{}()|<>~*"\\:[\]^=%-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Keyword search over node title/summary via the full-text index (the lexical
+ * complement to semantic search — exact terms, names, acronyms a vector misses).
+ */
+export async function searchText({
+  query: q,
+  k = 10,
+  type,
+}: {
+  query: string;
+  k?: number;
+  type?: NodeType;
+}): Promise<Array<NodeView & { score: number }>> {
+  const safeQ = sanitizeFulltext(q);
+  if (!safeQ) return [];
+  const safeK = Math.max(1, Math.min(100, Math.floor(k)));
+  const typeFilter = type && isNodeType(type) ? `AND '${type}' IN labels(node)` : "";
+  const rows = await query<{
+    props: Record<string, unknown>;
+    labels: string[];
+    score: number;
+  }>(
+    `CALL db.idx.fulltext.queryNodes('Node', $q) YIELD node, score
+     WHERE coalesce(node.archived, false) = false ${typeFilter}
+     RETURN properties(node) AS props, labels(node) AS labels, score
+     ORDER BY score DESC
+     LIMIT ${safeK}`,
+    { q: safeQ },
+  );
+  return rows.map((r) => ({ props: r.props, labels: r.labels, score: r.score }));
+}
+
 export interface ChunkHit {
   id: string;
   text: string;

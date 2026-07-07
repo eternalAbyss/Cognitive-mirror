@@ -16,9 +16,11 @@ export interface MergeCandidate {
   aId: string;
   aTitle: string;
   aSummary: string;
+  aEdited: boolean;
   bId: string;
   bTitle: string;
   bSummary: string;
+  bEdited: boolean;
   distance: number;
 }
 
@@ -40,7 +42,9 @@ export async function mergeCandidates(
        AND coalesce(node.mergeCooldownUntil,'') < $now
        AND score <= ${max}
      RETURN node.id AS aId, node.title AS aTitle, coalesce(node.summary,'') AS aSummary,
-            c.id AS bId, c.title AS bTitle, coalesce(c.summary,'') AS bSummary, score AS distance
+            coalesce(node.edited,false) AS aEdited,
+            c.id AS bId, c.title AS bTitle, coalesce(c.summary,'') AS bSummary,
+            coalesce(c.edited,false) AS bEdited, score AS distance
      ORDER BY score ASC`,
     { now },
   );

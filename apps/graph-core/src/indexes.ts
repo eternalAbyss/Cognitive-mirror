@@ -37,7 +37,8 @@ export async function ensureIndexes(): Promise<void> {
     `CREATE VECTOR INDEX FOR (c:Chunk) ON (c.embedding) OPTIONS {dimension:${EMBED_DIM}, similarityFunction:'cosine'}`,
   );
 
-  // Full-text (best effort; not required for Phase 1).
+  // Full-text over title + summary — backs the keyword `searchText` path
+  // (lexical complement to the vector index). Idempotent like the rest.
   await tryExec(
     "Node.fulltext",
     "CALL db.idx.fulltext.createNodeIndex('Node', 'title', 'summary')",

@@ -1,8 +1,13 @@
-# Tunnel (Cloudflare) — Phase 0 stub
+# Tunnel (Cloudflare) — stub (not yet implemented)
+
+> 📖 Part of Cognitive-mirror — see the [full documentation](../../documentation.md) for
+> architecture, setup, the API endpoints, and how this fits the whole system.
 
 Outbound-only public reachability for the MCP endpoint (design D2 / §4). No inbound
 router ports: `cloudflared` makes an outbound connection and publishes a stable URL that
-Anthropic's cloud can reach. This is a **stub** — wired up in Phase 0, not Phase 1.
+Anthropic's cloud can reach. This is a **stub** — only `config.template.yml` exists; the
+tunnel + MCP OAuth are still on the [root TODO](../../TODO.md). Until then, use the
+local Claude Desktop stdio connector instead (see `apps/mcp-server/CLAUDE_DESKTOP.md`).
 
 ## One-time setup (Phase 0)
 

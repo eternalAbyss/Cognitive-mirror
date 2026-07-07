@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { CognitiveMirrorEngine, type ViewState } from "../lib/engine";
+import Markdown from "./Markdown";
 
 const INITIAL_VIEW: ViewState = {
   queryInput: "",
@@ -33,6 +34,8 @@ const BG = "rgb(var(--bg))";
 interface BriefItem { id: string; title: string; summary: string; asOf: string; kind?: "world" | "concept" | "interest" }
 interface LoopItem { id: string; title: string; summary: string }
 interface OpEntry { id: string; ts: string; reason: string; ops: number }
+interface ListItem { id: string; title: string; summary: string }
+interface ApprovalItem { id: string; ts: string; action: "merge" | "delete"; title: string; detail: string; subjectIds: string[] }
 interface Vitals { counts: Record<string, number>; budget: { spendUsd: number; dailyCap: number } | null }
 interface Status { services: { graphCore?: boolean; mcp?: boolean; daemon?: boolean }; budget: { spendUsd: number; dailyCap: number } | null }
 interface NodeDetail {
@@ -62,10 +65,13 @@ export default function CognitiveMirror() {
   const [loops, setLoops] = useState<LoopItem[]>([]);
   const [oplog, setOplog] = useState<OpEntry[]>([]);
   const [status, setStatus] = useState<Status>({ services: {}, budget: null });
-  const [conceptsOpen, setConceptsOpen] = useState(false);
   const [explore, setExplore] = useState(false);
-  const [conceptList, setConceptList] = useState<{ id: string; title: string; summary: string }[]>([]);
+  const [listPanel, setListPanel] = useState<{ type: string; label: string } | null>(null);
+  const [listItems, setListItems] = useState<ListItem[]>([]);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
+  const [approvals, setApprovals] = useState<ApprovalItem[]>([]);
+  // Latest panel-refresh fn, set inside the mount effect so handlers can trigger it.
+  const refreshRef = useRef<() => void>(() => {});
 
   // Keep the document attribute, persistence and the WebGL scene in sync with the toggle.
   useEffect(() => {
@@ -113,12 +119,13 @@ export default function CognitiveMirror() {
     }, 3500);
 
     const refresh = async () => {
-      const [v, b, l, o, s] = await Promise.all([
+      const [v, b, l, o, s, a] = await Promise.all([
         getJson<Vitals>("/api/vitals", { counts: {}, budget: null }),
         getJson<{ items: BriefItem[]; source?: "world" | "graph" }>("/api/brief", { items: [] }),
         getJson<{ items: LoopItem[] }>("/api/loops", { items: [] }),
         getJson<{ entries: OpEntry[] }>("/api/oplog", { entries: [] }),
         getJson<Status>("/api/status", { services: {}, budget: null }),
+        getJson<{ approvals: ApprovalItem[] }>("/api/approvals", { approvals: [] }),
       ]);
       setVitals(v);
       setBrief(b.items);
@@ -126,7 +133,9 @@ export default function CognitiveMirror() {
       setLoops(l.items);
       setOplog(o.entries);
       setStatus(s);
+      setApprovals(a.approvals);
     };
+    refreshRef.current = refresh;
     void refresh();
     const poll = setInterval(refresh, 6000);
 
@@ -158,13 +167,59 @@ export default function CognitiveMirror() {
   const e = () => engineRef.current;
   const c = vitals.counts;
 
-  const toggleConcepts = async () => {
-    const next = !conceptsOpen;
-    setConceptsOpen(next);
-    if (next) {
-      const { concepts } = await getJson<{ concepts: typeof conceptList }>("/api/concepts", { concepts: [] });
-      setConceptList(concepts);
-    }
+  // Rebuild the sphere from the live graph — reflects deletions/edits immediately
+  // (the periodic poll only *adds* nodes; this also drops archived ones).
+  const reloadGraph = async () => {
+    const g = await getJson<{ nodes: any[]; edges: any[] }>("/api/graph", { nodes: [], edges: [] });
+    e()?.loadData(g);
+    e()?.setReadout(`${g.nodes.length} nodes · ${g.edges.length} edges · live`);
+  };
+
+  const refreshList = async (type: string) => {
+    const { nodes } = await getJson<{ nodes: ListItem[] }>(`/api/nodes?type=${encodeURIComponent(type)}`, { nodes: [] });
+    setListItems(nodes);
+  };
+
+  // Open / toggle the list panel for a node type (Concepts, Insights, Syntheses…).
+  const openList = async (type: string, label: string) => {
+    if (listPanel?.type === type) { setListPanel(null); return; }
+    setListPanel({ type, label });
+    void refreshList(type);
+  };
+
+  // Soft-delete (archive) a node, then reconcile every surface.
+  const deleteNode = async (id: string) => {
+    if (!id) return;
+    await fetch(`/api/node/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (detail?.props?.id === id) setDetail(null);
+    setListItems((items) => items.filter((n) => n.id !== id));
+    await reloadGraph();
+    refreshRef.current();
+  };
+
+  // Save an edited note (re-embeds server-side), then refresh the open detail + lists.
+  const saveEdit = async (id: string, title: string, summary: string) => {
+    await fetch(`/api/node/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title, summary }),
+    });
+    const d = await getJson<NodeDetail | null>(`/api/node/${encodeURIComponent(id)}`, null);
+    if (d && d.props?.id) setDetail(d);
+    if (listPanel) void refreshList(listPanel.type);
+    await reloadGraph();
+    refreshRef.current();
+  };
+
+  const resolveApprovalAction = async (id: string, decision: "approve" | "reject") => {
+    setApprovals((a) => a.filter((x) => x.id !== id)); // optimistic
+    await fetch(`/api/approvals/${encodeURIComponent(id)}/resolve`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision }),
+    });
+    await reloadGraph();
+    refreshRef.current();
   };
 
   // Open a node's full detail (and ping it on the sphere).
@@ -243,6 +298,25 @@ export default function CognitiveMirror() {
         {/* Center: live Daily Brief + open loop */}
         <div id="cm-center" style={{ position: "absolute", top: 150, bottom: 182, left: "50%", width: 548, overflowY: "auto", overflowX: "hidden", transformStyle: "preserve-3d", transition: "transform .25s ease-out, opacity .35s ease", opacity: explore ? 0 : 1, visibility: explore ? "hidden" : "visible" }}>
           <div style={{ minHeight: "100%", display: "flex", flexDirection: "column", justifyContent: "center", gap: 10, padding: "2px 0" }}>
+            {approvals.length > 0 && (
+              <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", gap: 8, marginBottom: 6 }}>
+                {approvals.map((ap) => (
+                  <div key={ap.id} style={{ background: surface(.86), backdropFilter: "blur(13px) saturate(1.05)", WebkitBackdropFilter: "blur(13px) saturate(1.05)", border: `1px solid rgba(var(--accent),.5)`, borderRadius: 12, padding: "14px 16px", boxShadow: "0 10px 34px rgba(0,0,0,.1)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                      <div style={{ width: 7, height: 7, background: INK, transform: "rotate(45deg)", flexShrink: 0, animation: "soft-pulse 2.4s ease-in-out infinite" }} />
+                      <span style={{ fontSize: 7.5, letterSpacing: 2.5, color: ink(.6), textTransform: "uppercase" }}>Cleanup needs approval · {ap.action}</span>
+                    </div>
+                    <div style={{ fontSize: 13, color: ink(.84), lineHeight: 1.45, fontWeight: 600 }}>{ap.title}</div>
+                    {ap.detail && <div style={{ fontSize: 12, color: ink(.55), lineHeight: 1.5, marginTop: 4 }}>{ap.detail}</div>}
+                    <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                      <button onClick={() => resolveApprovalAction(ap.id, "approve")} className="cm-allow" style={loopBtn(ACCENT, ACCENT_FG, ACCENT)}>Allow</button>
+                      <button onClick={() => resolveApprovalAction(ap.id, "reject")} className="cm-park" style={loopBtn("transparent", ink(.5), ink(.18))}>Reject</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div style={{ fontSize: 7.5, letterSpacing: 5, color: ink(.34), textTransform: "uppercase", textAlign: "center", marginBottom: 2, flexShrink: 0 }}>
               {briefSource === "graph" ? "From Your Graph" : "Daily Brief"}
             </div>
@@ -253,12 +327,13 @@ export default function CognitiveMirror() {
               </div>
             )}
             {brief.map((b, i) => (
-              <div key={b.id} onClick={() => b.kind !== "world" && openNode(b.id)} style={{ ...card, cursor: b.kind !== "world" ? "pointer" : "default" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <div key={b.id} onClick={() => openNode(b.id)} style={{ ...card, cursor: "pointer", position: "relative" }}>
+                <button onClick={(ev) => { ev.stopPropagation(); void deleteNode(b.id); }} className="cm-trash" title="Delete" style={trashBtn}><TrashIcon /></button>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, paddingRight: 26 }}>
                   <div style={{ width: 6, height: 6, borderRadius: "50%", background: i === 0 ? INK : ink(.4), flexShrink: 0 }} />
                   <span style={{ fontSize: 7.5, letterSpacing: 2.5, color: ink(.46), textTransform: "uppercase" }}>{b.kind === "interest" ? "Interest · " : b.kind === "concept" ? "Concept · " : ""}{b.title}</span>
                 </div>
-                <div style={{ fontSize: 13, color: ink(.8), lineHeight: 1.62, textWrap: "pretty" as CSSProperties["textWrap"] }}>{b.summary}</div>
+                <Markdown style={{ fontSize: 13, color: ink(.8) }}>{b.summary}</Markdown>
               </div>
             ))}
 
@@ -307,13 +382,13 @@ export default function CognitiveMirror() {
 
         {/* Status bar — live vitals */}
         <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 56, background: surface(.78), borderTop: `1px solid ${ink(.08)}`, backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", display: "flex", alignItems: "center", padding: "0 28px" }}>
-          <Vital value={String(c.Concept ?? 0)} label="Concepts" dot onClick={toggleConcepts} />
+          <Vital value={String(c.Concept ?? 0)} label="Concepts" dot onClick={() => openList("Concept", "Concepts")} />
           <Divider />
-          <Vital value={String(c.Insight ?? 0)} label="Insights" />
+          <Vital value={String(c.Insight ?? 0)} label="Insights" onClick={() => openList("Insight", "Insights")} />
           <Divider />
-          <Vital value={String(c.Synthesis ?? 0)} label="Syntheses" />
+          <Vital value={String(c.Synthesis ?? 0)} label="Syntheses" onClick={() => openList("Synthesis", "Syntheses")} />
           <Divider />
-          <Vital value={String(c.WorldEvent ?? 0)} label="World Events" last />
+          <Vital value={String(c.WorldEvent ?? 0)} label="World Events" last onClick={() => openList("WorldEvent", "World Events")} />
           <div style={{ flex: 1 }} />
           <ThemeToggle dark={dark} onToggle={() => setDark((v) => !v)} />
           <Divider />
@@ -329,24 +404,28 @@ export default function CognitiveMirror() {
         </div>
       </div>
 
-      {/* Concepts list — click a concept to ping it on the sphere */}
-      {conceptsOpen && (
+      {/* Type list (Concepts / Insights / Syntheses / World Events) — click a row to
+          open its card, trash to delete */}
+      {listPanel && (
         <div style={{ position: "absolute", left: 28, bottom: 70, zIndex: 21, width: 320, maxHeight: "56vh", display: "flex", flexDirection: "column", background: surface(.93), backdropFilter: "blur(18px) saturate(1.1)", WebkitBackdropFilter: "blur(18px) saturate(1.1)", border: `1px solid ${ink(.1)}`, borderRadius: 14, boxShadow: "0 16px 50px rgba(0,0,0,.12)", overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px 12px", borderBottom: `1px solid ${ink(.07)}` }}>
-            <span style={{ fontFamily: MONO, fontSize: 8, letterSpacing: 3, color: ink(.55), textTransform: "uppercase" }}>Concepts · {conceptList.length}</span>
-            <button onClick={() => setConceptsOpen(false)} style={{ fontFamily: MONO, fontSize: 12, lineHeight: 1, padding: "2px 9px", border: `1px solid ${ink(.16)}`, borderRadius: 6, background: "transparent", color: ink(.6), cursor: "pointer" }}>×</button>
+            <span style={{ fontFamily: MONO, fontSize: 8, letterSpacing: 3, color: ink(.55), textTransform: "uppercase" }}>{listPanel.label} · {listItems.length}</span>
+            <button onClick={() => setListPanel(null)} style={{ fontFamily: MONO, fontSize: 12, lineHeight: 1, padding: "2px 9px", border: `1px solid ${ink(.16)}`, borderRadius: 6, background: "transparent", color: ink(.6), cursor: "pointer" }}>×</button>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "4px 8px 10px" }}>
-            {conceptList.length === 0 && <div style={{ fontFamily: MONO, fontSize: 10, color: ink(.3), padding: "10px 8px" }}>no concepts yet</div>}
-            {conceptList.map((cn) => (
-              <div key={cn.id} onClick={() => openNode(cn.id)} title={cn.summary} className="cm-chip" style={{ fontSize: 12, color: ink(.78), padding: "7px 10px", borderRadius: 8, cursor: "pointer", lineHeight: 1.3 }}>{cn.title}</div>
+            {listItems.length === 0 && <div style={{ fontFamily: MONO, fontSize: 10, color: ink(.3), padding: "10px 8px" }}>nothing here yet</div>}
+            {listItems.map((it) => (
+              <div key={it.id} className="cm-chip" style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 6px 5px 10px", borderRadius: 8 }}>
+                <span onClick={() => openNode(it.id)} title={it.summary} style={{ flex: 1, fontSize: 12, color: ink(.78), cursor: "pointer", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.title}</span>
+                <button onClick={() => void deleteNode(it.id)} className="cm-trash" title="Delete" style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${ink(.12)}`, borderRadius: 6, background: "transparent", cursor: "pointer", padding: 0, flexShrink: 0 }}><TrashIcon /></button>
+              </div>
             ))}
           </div>
         </div>
       )}
 
       {/* Node detail card — everything about a concept/source you clicked */}
-      {detail && <NodeDetailCard detail={detail} onClose={() => setDetail(null)} onOpen={openNode} />}
+      {detail && <NodeDetailCard detail={detail} onClose={() => setDetail(null)} onOpen={openNode} onDelete={deleteNode} onSave={saveEdit} />}
 
       {/* Answer overlay — wider, with a scrollable body (research briefings are long) */}
       {view.showAnswer && (
@@ -357,7 +436,7 @@ export default function CognitiveMirror() {
             <div style={{ flex: 1, height: 1, background: ink(.1) }} />
           </div>
           <div style={{ flex: 1, overflowY: "auto", minHeight: 60, paddingRight: 6 }}>
-            <div style={{ fontSize: 14, color: ink(.86), lineHeight: 1.72, textWrap: "pretty" as CSSProperties["textWrap"], whiteSpace: "pre-wrap" }}>{view.answerText}</div>
+            <Markdown style={{ fontSize: 14, color: ink(.86) }}>{view.answerText}</Markdown>
             {view.sources.length > 0 && (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 20 }}>
                 {view.sources.map((src, i) => (
@@ -437,11 +516,54 @@ const loopBtn = (bg: string, color: string, border: string): CSSProperties => ({
   textTransform: "uppercase",
 });
 
+const footBtn = (bg: string, color: string, border: string): CSSProperties => ({
+  fontFamily: MONO,
+  fontSize: 8.5,
+  letterSpacing: 2,
+  padding: "9px 18px",
+  background: bg,
+  border: `1px solid ${border}`,
+  borderRadius: 7,
+  color,
+  cursor: "pointer",
+  textTransform: "uppercase",
+});
+
+const trashBtn: CSSProperties = {
+  position: "absolute",
+  top: 12,
+  right: 12,
+  width: 24,
+  height: 24,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: `1px solid ${ink(.12)}`,
+  borderRadius: 6,
+  background: "transparent",
+  cursor: "pointer",
+  padding: 0,
+};
+
+function TrashIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+    </svg>
+  );
+}
+
 function Divider() {
   return <div style={{ width: 1, height: 24, background: ink(.1), margin: "0 16px" }} />;
 }
 
 function ThemeToggle({ dark, onToggle }: { dark: boolean; onToggle: () => void }) {
+  // The real theme is only known on the client (read from the DOM after the
+  // pre-paint script runs). Render a fixed icon for SSR + first paint so the
+  // markup matches, then swap to the correct one after mount — otherwise the
+  // sun/moon SVGs differ and React throws a hydration error that breaks the page.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   return (
     <button
       onClick={onToggle}
@@ -451,7 +573,7 @@ function ThemeToggle({ dark, onToggle }: { dark: boolean; onToggle: () => void }
       suppressHydrationWarning
       style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${ink(.16)}`, borderRadius: "50%", background: surface(.5), color: ink(.55), cursor: "pointer", padding: 0 }}
     >
-      {dark ? (
+      {mounted && dark ? (
         // sun — click to go light
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="4" />
@@ -467,9 +589,22 @@ function ThemeToggle({ dark, onToggle }: { dark: boolean; onToggle: () => void }
   );
 }
 
-function NodeDetailCard({ detail, onClose, onOpen }: { detail: NodeDetail; onClose: () => void; onOpen: (id: string) => void }) {
+function NodeDetailCard({ detail, onClose, onOpen, onDelete, onSave }: {
+  detail: NodeDetail;
+  onClose: () => void;
+  onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
+  onSave: (id: string, title: string, summary: string) => void | Promise<void>;
+}) {
   const p = detail.props;
+  const id = String(p.id ?? "");
   const type = detail.labels.filter((l) => l !== "Node").join(" · ") || String(p.type ?? "Node");
+  const [editing, setEditing] = useState(false);
+  const [preview, setPreview] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(String(p.title ?? ""));
+  const [draftSummary, setDraftSummary] = useState(String(p.summary ?? ""));
+  const [saving, setSaving] = useState(false);
+
   const meta = ((): Record<string, unknown> => {
     try {
       return typeof p.metadata === "string" ? JSON.parse(p.metadata) : ((p.metadata as Record<string, unknown>) ?? {});
@@ -489,47 +624,95 @@ function NodeDetailCard({ detail, onClose, onOpen }: { detail: NodeDetail; onClo
     return true;
   });
 
+  const startEdit = () => {
+    setDraftTitle(String(p.title ?? ""));
+    setDraftSummary(String(p.summary ?? ""));
+    setPreview(false);
+    setEditing(true);
+  };
+  const save = async () => {
+    setSaving(true);
+    await onSave(id, draftTitle, draftSummary);
+    setSaving(false);
+    setEditing(false);
+  };
+
   return (
     <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 22, width: 640, maxWidth: "92vw", maxHeight: "80vh", display: "flex", flexDirection: "column", background: surface(.95), backdropFilter: "blur(28px) saturate(1.1)", WebkitBackdropFilter: "blur(28px) saturate(1.1)", border: `1px solid ${ink(.1)}`, borderRadius: 16, padding: "26px 30px", boxShadow: "0 30px 80px rgba(0,0,0,.16)", animation: "float-in-center .4s ease-out" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexShrink: 0 }}>
-        <div style={{ fontFamily: MONO, fontSize: 7, letterSpacing: 4, color: ink(.5), textTransform: "uppercase" }}>{type}</div>
+        <div style={{ fontFamily: MONO, fontSize: 7, letterSpacing: 4, color: ink(.5), textTransform: "uppercase" }}>{type}{p.edited ? " · edited" : ""}</div>
         <div style={{ flex: 1, height: 1, background: ink(.1) }} />
         <button onClick={onClose} style={{ fontFamily: MONO, fontSize: 12, lineHeight: 1, padding: "2px 9px", border: `1px solid ${ink(.16)}`, borderRadius: 6, background: "transparent", color: ink(.6), cursor: "pointer" }}>×</button>
       </div>
-      <div style={{ fontFamily: SANS, fontSize: 20, fontWeight: 600, color: INK, marginBottom: 12, flexShrink: 0, lineHeight: 1.25 }}>{String(p.title ?? "")}</div>
+
+      {editing ? (
+        <input value={draftTitle} onChange={(ev) => setDraftTitle(ev.target.value)} className="cm-edit" placeholder="Title" style={{ width: "100%", marginBottom: 12, flexShrink: 0, fontFamily: SANS, fontSize: 20, fontWeight: 600, color: INK, background: surface(.6), border: `1px solid ${ink(.16)}`, borderRadius: 9, padding: "8px 12px", lineHeight: 1.25 }} />
+      ) : (
+        <div style={{ fontFamily: SANS, fontSize: 20, fontWeight: 600, color: INK, marginBottom: 12, flexShrink: 0, lineHeight: 1.25 }}>{String(p.title ?? "")}</div>
+      )}
+
       <div style={{ flex: 1, overflowY: "auto", paddingRight: 6 }}>
-        {p.summary ? <div style={{ fontSize: 14, color: ink(.82), lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{String(p.summary)}</div> : null}
+        {editing ? (
+          preview ? (
+            draftSummary.trim()
+              ? <Markdown style={{ fontSize: 14, color: ink(.82) }}>{draftSummary}</Markdown>
+              : <div style={{ fontFamily: MONO, fontSize: 11, color: ink(.4) }}>nothing to preview</div>
+          ) : (
+            <textarea value={draftSummary} onChange={(ev) => setDraftSummary(ev.target.value)} className="cm-edit" placeholder="Write in markdown — **bold**, lists, `code`, [links](url)…" style={{ width: "100%", minHeight: 240, resize: "vertical", fontFamily: MONO, fontSize: 13, lineHeight: 1.6, color: ink(.86), background: surface(.6), border: `1px solid ${ink(.16)}`, borderRadius: 10, padding: "12px 14px" }} />
+          )
+        ) : (
+          <>
+            {p.summary ? <Markdown style={{ fontSize: 14, color: ink(.82) }}>{String(p.summary)}</Markdown> : null}
 
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 18px", marginTop: 16, fontFamily: MONO, fontSize: 9.5, color: ink(.5) }}>
-          {p.domain ? <span>domain: {String(p.domain)}</span> : null}
-          {conf !== undefined ? <span>confidence: {conf.toFixed(2)}</span> : null}
-          {p.touchCount !== undefined ? <span>reads: {String(p.touchCount)}</span> : null}
-          {touched ? <span>last touched: {touched.slice(0, 10)}</span> : null}
-          {meta.source ? <span>source: {String(meta.source)}</span> : null}
-        </div>
-        {url ? <div style={{ marginTop: 10 }}><a href={url} target="_blank" rel="noreferrer" style={{ fontFamily: MONO, fontSize: 10, color: LINK, wordBreak: "break-all" }}>{url}</a></div> : null}
-
-        {edges.length > 0 && (
-          <div style={{ marginTop: 22 }}>
-            <div style={{ fontFamily: MONO, fontSize: 7.5, letterSpacing: 3, color: ink(.4), textTransform: "uppercase", marginBottom: 8 }}>Connections · {edges.length}</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              {edges.map((ed, i) => (
-                <div key={i} onClick={() => onOpen(ed.to)} className="cm-chip" style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "6px 10px", borderRadius: 8, cursor: "pointer" }}>
-                  <span style={{ fontFamily: MONO, fontSize: 8, letterSpacing: 1, color: ink(.4), minWidth: 92, flexShrink: 0 }}>{ed.type}</span>
-                  <span style={{ fontSize: 13, color: ink(.8) }}>{ed.toTitle ?? ed.to.slice(0, 8)}</span>
-                </div>
-              ))}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 18px", marginTop: 16, fontFamily: MONO, fontSize: 9.5, color: ink(.5) }}>
+              {p.domain ? <span>domain: {String(p.domain)}</span> : null}
+              {conf !== undefined ? <span>confidence: {conf.toFixed(2)}</span> : null}
+              {p.touchCount !== undefined ? <span>reads: {String(p.touchCount)}</span> : null}
+              {touched ? <span>last touched: {touched.slice(0, 10)}</span> : null}
+              {meta.source ? <span>source: {String(meta.source)}</span> : null}
             </div>
-          </div>
-        )}
+            {url ? <div style={{ marginTop: 10 }}><a href={url} target="_blank" rel="noreferrer" style={{ fontFamily: MONO, fontSize: 10, color: LINK, wordBreak: "break-all" }}>{url}</a></div> : null}
 
-        {citations.length > 0 && (
-          <div style={{ marginTop: 22 }}>
-            <div style={{ fontFamily: MONO, fontSize: 7.5, letterSpacing: 3, color: ink(.4), textTransform: "uppercase", marginBottom: 8 }}>Web sources · {citations.length}</div>
-            {citations.slice(0, 15).map((cit, i) => (
-              <div key={i} style={{ marginBottom: 5 }}><a href={String(cit.url ?? "")} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: LINK }}>{String(cit.title ?? cit.url ?? "")}</a></div>
-            ))}
-          </div>
+            {edges.length > 0 && (
+              <div style={{ marginTop: 22 }}>
+                <div style={{ fontFamily: MONO, fontSize: 7.5, letterSpacing: 3, color: ink(.4), textTransform: "uppercase", marginBottom: 8 }}>Connections · {edges.length}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  {edges.map((ed, i) => (
+                    <div key={i} onClick={() => onOpen(ed.to)} className="cm-chip" style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "6px 10px", borderRadius: 8, cursor: "pointer" }}>
+                      <span style={{ fontFamily: MONO, fontSize: 8, letterSpacing: 1, color: ink(.4), minWidth: 92, flexShrink: 0 }}>{ed.type}</span>
+                      <span style={{ fontSize: 13, color: ink(.8) }}>{ed.toTitle ?? ed.to.slice(0, 8)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {citations.length > 0 && (
+              <div style={{ marginTop: 22 }}>
+                <div style={{ fontFamily: MONO, fontSize: 7.5, letterSpacing: 3, color: ink(.4), textTransform: "uppercase", marginBottom: 8 }}>Web sources · {citations.length}</div>
+                {citations.slice(0, 15).map((cit, i) => (
+                  <div key={i} style={{ marginBottom: 5 }}><a href={String(cit.url ?? "")} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: LINK }}>{String(cit.title ?? cit.url ?? "")}</a></div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <div style={{ display: "flex", gap: 10, marginTop: 18, flexShrink: 0, alignItems: "center" }}>
+        {editing ? (
+          <>
+            <button onClick={() => setPreview((v) => !v)} className="cm-iconbtn" style={footBtn("transparent", ink(.6), ink(.18))}>{preview ? "✎ Edit" : "◉ Preview"}</button>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => setEditing(false)} className="cm-dismiss" style={footBtn("transparent", ink(.5), ink(.16))}>Cancel</button>
+            <button onClick={save} disabled={saving} className="cm-continue" style={{ ...footBtn(ACCENT, ACCENT_FG, ACCENT), opacity: saving ? 0.6 : 1 }}>{saving ? "Saving…" : "Save"}</button>
+          </>
+        ) : (
+          <>
+            <button onClick={startEdit} className="cm-iconbtn" style={footBtn("transparent", ink(.6), ink(.18))}>✎ Edit</button>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => onDelete(id)} className="cm-trash" style={footBtn("transparent", "#C2557A", "rgba(194,85,122,.4)")}>Delete</button>
+          </>
         )}
       </div>
     </div>

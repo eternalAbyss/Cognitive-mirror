@@ -78,6 +78,9 @@ const EnvSchema = z.object({
   // Queue
   QUEUE_DB_PATH: z.string().default("./.data/queue.sqlite"),
 
+  // Budget breaker state (persisted across restarts, design §6)
+  BUDGET_STATE_PATH: z.string().default("./.data/budget.json"),
+
   // Ingestion webhook auth (empty = allow, for local dev)
   INGEST_TOKEN: z.string().default(""),
 
@@ -124,10 +127,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   merged.GITHUB_TOKEN ||= getSecret("cm-github-token") ?? "";
 
   const parsed = EnvSchema.parse(merged);
-  // Anchor the queue path to the repo root so ingestion and the daemon share it.
+  // Anchor file-state paths to the repo root so every service shares one file
+  // regardless of its cwd (apps run with their own package dir as cwd).
   parsed.QUEUE_DB_PATH = isAbsolute(parsed.QUEUE_DB_PATH)
     ? parsed.QUEUE_DB_PATH
     : resolve(rootDir, parsed.QUEUE_DB_PATH);
+  parsed.BUDGET_STATE_PATH = isAbsolute(parsed.BUDGET_STATE_PATH)
+    ? parsed.BUDGET_STATE_PATH
+    : resolve(rootDir, parsed.BUDGET_STATE_PATH);
   const csv = (s: string) =>
     s
       .split(",")

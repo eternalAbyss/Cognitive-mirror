@@ -1114,7 +1114,10 @@ export class CognitiveMirrorEngine {
     // Only block while a query is mid-flight; from "idle" or "answered" a new
     // question is allowed (so you can ask again without dismissing first).
     if (this.state.queryState === "querying" || this.state.queryState === "returning") return;
-    if (!this.dataLoaded) return;
+    // Wait for WebGL to be ready, but DON'T block on an empty graph — a query with
+    // no matches falls through to the "nothing in your graph yet" answer, which
+    // offers to research the web and bootstrap notes into an empty graph.
+    if (!this.renderer || this.verts.length === 0) return;
     const query = q || "What connects my thinking across domains?";
     this._resetTraversal();
     this.lastQuery = query;

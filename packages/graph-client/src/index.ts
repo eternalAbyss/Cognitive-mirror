@@ -62,6 +62,17 @@ export class GraphClient {
     });
   }
 
+  searchText(args: {
+    query: string;
+    k?: number;
+    type?: NodeType;
+  }): Promise<{ results: SemanticHit[] }> {
+    return this.req("/search/text", {
+      method: "POST",
+      body: JSON.stringify(args),
+    });
+  }
+
   searchChunks(embedding: number[], k?: number): Promise<{ results: ChunkHit[] }> {
     return this.req("/search/chunks", {
       method: "POST",
@@ -114,15 +125,48 @@ export class GraphClient {
   undo(opLogId: string): Promise<{ ok: boolean; reason?: string; reversed?: number }> {
     return this.req("/maintenance/undo", { method: "POST", body: JSON.stringify({ opLogId }) });
   }
+
+  // ── Human-in-the-loop approvals for edited-note cleanup (design §9) ──────────
+  createApproval(input: {
+    action: "merge" | "delete";
+    title: string;
+    detail: string;
+    ops: GraphOp[];
+    subjectIds: string[];
+  }): Promise<{ id: string; created: boolean }> {
+    return this.req("/approvals", { method: "POST", body: JSON.stringify(input) });
+  }
+
+  listApprovals(): Promise<{ approvals: ApprovalView[] }> {
+    return this.req("/approvals");
+  }
+
+  resolveApproval(id: string, decision: "approve" | "reject"): Promise<{ ok: boolean; reason?: string; opLogId?: string }> {
+    return this.req(`/approvals/${encodeURIComponent(id)}/resolve`, {
+      method: "POST",
+      body: JSON.stringify({ decision }),
+    });
+  }
+}
+
+export interface ApprovalView {
+  id: string;
+  ts: string;
+  action: "merge" | "delete";
+  title: string;
+  detail: string;
+  subjectIds: string[];
 }
 
 export interface MergeCandidate {
   aId: string;
   aTitle: string;
   aSummary: string;
+  aEdited: boolean;
   bId: string;
   bTitle: string;
   bSummary: string;
+  bEdited: boolean;
   distance: number;
 }
 export interface CrossDomainPair {

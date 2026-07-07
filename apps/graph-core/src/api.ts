@@ -1,9 +1,10 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { ExecuteRequestSchema, NodeTypeSchema } from "@cm/shared";
-import { getNode, searchSemantic, searchChunks, traverse } from "./repo.js";
+import { ExecuteRequestSchema, GraphOpSchema, NodeTypeSchema } from "@cm/shared";
+import { getNode, searchSemantic, searchChunks, searchText, traverse } from "./repo.js";
 import { executeOps } from "./execute.js";
 import { recentOpLog, undoOpLog } from "./oplog.js";
+import { createApproval, listApprovals, resolveApproval } from "./approvals.js";
 import {
   mergeCandidates,
   countsByType,
@@ -19,10 +20,22 @@ const EmbeddingBody = z.object({
 });
 
 const SemanticBody = EmbeddingBody.extend({ type: NodeTypeSchema.optional() });
+const TextBody = z.object({
+  query: z.string(),
+  k: z.number().int().positive().optional(),
+  type: NodeTypeSchema.optional(),
+});
 const TraverseBody = z.object({
   id: z.string(),
   depth: z.number().int().positive().optional(),
   limit: z.number().int().positive().optional(),
+});
+const ApprovalSchema = z.object({
+  action: z.enum(["merge", "delete"]),
+  title: z.string(),
+  detail: z.string().default(""),
+  ops: z.array(GraphOpSchema).min(1),
+  subjectIds: z.array(z.string()).min(1),
 });
 
 /** Internal localhost API for the Core Graph Service (design §3). */
@@ -40,6 +53,11 @@ export function buildApi(): Hono {
   app.post("/search/semantic", async (c) => {
     const body = SemanticBody.parse(await c.req.json());
     return c.json({ results: await searchSemantic(body) });
+  });
+
+  app.post("/search/text", async (c) => {
+    const body = TextBody.parse(await c.req.json());
+    return c.json({ results: await searchText(body) });
   });
 
   app.post("/search/chunks", async (c) => {
@@ -94,6 +112,19 @@ export function buildApi(): Hono {
   app.post("/maintenance/undo", async (c) => {
     const { opLogId } = z.object({ opLogId: z.string() }).parse(await c.req.json());
     return c.json(await undoOpLog(opLogId));
+  });
+
+  // ── Human-in-the-loop approvals for edited-note cleanup (design §9) ─────────
+  app.get("/approvals", async (c) => c.json({ approvals: await listApprovals() }));
+
+  app.post("/approvals", async (c) => {
+    const body = ApprovalSchema.parse(await c.req.json());
+    return c.json(await createApproval(body));
+  });
+
+  app.post("/approvals/:id/resolve", async (c) => {
+    const { decision } = z.object({ decision: z.enum(["approve", "reject"]) }).parse(await c.req.json());
+    return c.json(await resolveApproval(c.req.param("id"), decision));
   });
 
   app.onError((err, c) => {
