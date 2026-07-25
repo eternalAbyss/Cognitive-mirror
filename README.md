@@ -143,7 +143,9 @@ pnpm build | pnpm typecheck | pnpm test    # workspace-wide
 
 - **GitHub repositories** — one-shot import of every repo you own (README + description + language
   + topics → Concepts): `pnpm --filter @cm/ingestion repos` (needs `GITHUB_TOKEN`; add
-  `--no-archived` to skip archived repos). Re-runnable and idempotent.
+  `--no-archived` to skip archived repos). Re-runnable and idempotent: each repo upserts a single
+  Source node keyed by its `github:owner/repo` identity, so re-pulling updates that node in place
+  (even when the README changed) instead of creating duplicates.
 - **GitHub commits** — polled automatically for the repos listed in `GITHUB_REPOS` (`.env`).
 - **Notes / journal** (Apple Shortcuts) — see [apps/ingestion/SHORTCUTS.md](apps/ingestion/SHORTCUTS.md).
 - **YouTube** — load the MV3 extension, see [apps/browser-extension/youtube/README.md](apps/browser-extension/youtube/README.md).

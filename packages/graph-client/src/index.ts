@@ -51,6 +51,11 @@ export class GraphClient {
     return this.req(`/node/${encodeURIComponent(id)}`);
   }
 
+  /** Find a live node by its stable external identity (e.g. "github:owner/repo"), or null. */
+  findByExternalId(externalId: string): Promise<{ node: NodeView | null }> {
+    return this.req(`/nodes/by-external-id?externalId=${encodeURIComponent(externalId)}`);
+  }
+
   searchSemantic(args: {
     embedding: number[];
     k?: number;

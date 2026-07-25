@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { ExecuteRequestSchema, GraphOpSchema, NodeTypeSchema } from "@cm/shared";
-import { getNode, searchSemantic, searchChunks, searchText, traverse } from "./repo.js";
+import { getNode, findByExternalId, searchSemantic, searchChunks, searchText, traverse } from "./repo.js";
 import { executeOps } from "./execute.js";
 import { recentOpLog, undoOpLog } from "./oplog.js";
 import { createApproval, listApprovals, resolveApproval } from "./approvals.js";
@@ -106,6 +106,12 @@ export function buildApi(): Hono {
     const type = c.req.query("type") ?? "";
     const limit = Number(c.req.query("limit") ?? 1000);
     return c.json({ nodes: await listByType(type, limit) });
+  });
+
+  // Look up a node by its stable external identity (enrichment idempotency).
+  app.get("/nodes/by-external-id", async (c) => {
+    const externalId = c.req.query("externalId") ?? "";
+    return c.json({ node: externalId ? await findByExternalId(externalId) : null });
   });
 
   // Reverse an automated destructive op within its undo window (design §9).

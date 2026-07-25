@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   EnrichPayloadSchema,
   childLogger,
+  type EnrichPayload,
   type GraphOp,
   type NewNode,
 } from "@cm/shared";
@@ -10,6 +11,23 @@ import { enrichArtifact } from "./anthropic.js";
 import { embed, chunkText } from "./embeddings.js";
 
 const log = childLogger("daemon:enrich");
+
+/**
+ * Stable external identity for a re-ingestible artifact, or null for one-off
+ * captures. When set, the Source node is upserted on it so re-pulling the same
+ * artifact (e.g. a GitHub repo whose README changed) updates the existing node
+ * instead of spawning a duplicate.
+ */
+function externalIdFor(p: EnrichPayload): string | null {
+  // One Source per repo — `source` is already "github:owner/repo".
+  if (p.kind === "github_repo") return p.source;
+  // One Source per commit, keyed by immutable sha (source is the shared repo).
+  if (p.kind === "github_commit") {
+    const sha = typeof p.meta?.sha === "string" ? p.meta.sha : null;
+    return sha ? `github:commit:${sha}` : null;
+  }
+  return null;
+}
 
 export interface EnrichOutcome {
   sourceId: string;
@@ -32,18 +50,30 @@ export async function enrichJob(
   const result = await enrichArtifact(payload);
 
   const ops: GraphOp[] = [];
-  const sourceId = randomUUID();
 
-  const sourceNode: NewNode = {
-    type: "Source",
+  // Upsert the Source node on its stable external identity so re-ingesting the
+  // same artifact updates the existing node rather than creating a duplicate.
+  const externalId = externalIdFor(payload);
+  const existing = externalId ? (await graph.findByExternalId(externalId)).node : null;
+  const existingId = existing?.props?.id;
+  const sourceId = typeof existingId === "string" ? existingId : randomUUID();
+
+  const sourceFields = {
     title: result.source.title,
     summary: result.source.summary,
     content: payload.text,
     confidence: result.source.confidence ?? payload.confidence,
     asOf: payload.occurredAt?.slice(0, 10),
+    ...(externalId ? { externalId } : {}),
     metadata: { source: payload.source, url: payload.url, kind: payload.kind },
   };
-  ops.push({ kind: "createNode", id: sourceId, node: sourceNode });
+
+  if (existing) {
+    ops.push({ kind: "updateNode", id: sourceId, patch: sourceFields });
+  } else {
+    const sourceNode: NewNode = { type: "Source", ...sourceFields };
+    ops.push({ kind: "createNode", id: sourceId, node: sourceNode });
+  }
 
   const conceptIds = result.concepts.map(() => randomUUID());
   result.concepts.forEach((c, i) => {

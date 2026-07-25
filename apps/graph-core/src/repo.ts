@@ -49,6 +49,22 @@ export async function getNode(id: string): Promise<NodeView | null> {
   };
 }
 
+/**
+ * Find a live node by its stable external identity (e.g. "github:owner/repo").
+ * Used by enrichment to upsert re-ingested artifacts instead of duplicating them.
+ */
+export async function findByExternalId(externalId: string): Promise<NodeView | null> {
+  const rows = await query<{ props: Record<string, unknown>; labels: string[] }>(
+    `MATCH (n:Node {externalId: $externalId})
+     WHERE coalesce(n.archived, false) = false
+     RETURN properties(n) AS props, labels(n) AS labels
+     LIMIT 1`,
+    { externalId },
+  );
+  const row = rows[0];
+  return row ? { props: row.props, labels: row.labels } : null;
+}
+
 export interface SemanticSearchParams {
   embedding: number[];
   k?: number;

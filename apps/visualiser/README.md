@@ -8,16 +8,17 @@ Claude Design prototype the user handed off (`design/original.dc.html`) into a N
 
 **Aesthetic:** the final design is **light monochrome** — a white void, dark wireframe knowledge
 sphere behind frosted-white glass HUD panels (JetBrains Mono + Space Grotesk), with muted cyan
-(`#0E86A8`) for "thinking" traces and gold (`#B07B16`) for "arriving" syntheses. (This refines
+(`#0E86A8`) for "thinking" traces and gold (`#D8A63E`) for "arriving" syntheses. Cross-domain
+connections are drawn in purple (`#8B5CF6`). (This refines
 away from the dark-Tron look in `design/design-brief.md` — match the HTML, not the brief.)
 
 ## What's implemented (this pass)
 - **Welcome / command glass:** live clock, weather card, 3-card Daily Brief, the Open-Loop
   resurfacing card, the "Ask your second brain…" command line, and the cockpit status bar.
 - **Knowledge sphere:** a Three.js icosphere of glowing nodes in five domain clusters, named
-  nodes with labels, gold cross-domain arcs, depth-faded wireframe, drifting rotation, mouse
-  parallax, and time-of-day tint.
-- **"Watch Claude think":** the scripted query traversal (cyan packets → gold cross-domain hop →
+  nodes with labels, purple cross-domain connection lines, depth-faded wireframe, drifting
+  rotation, mouse parallax, and time-of-day tint.
+- **"Watch Claude think":** the scripted query traversal (cyan packets → cross-domain hop →
   convergence ring → gold synthesis flare → trace-back), the Reasoning-Trace console, anchored
   node callouts, and the gold-accented Synthesis answer with source chips.
 - **Idle living state:** background merges, arc-snaps, and traces while idle.

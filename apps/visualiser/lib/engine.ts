@@ -150,7 +150,7 @@ export class CognitiveMirrorEngine {
   private dataLoaded = false;
 
   private CYAN = "#0E86A8";
-  private GOLD = "#B07B16";
+  private PURPLE = "#8B5CF6"; // purple cross-domain connection lines
   private CRIMSON = "#C2557A";
 
   // Theme: light renders dark-ink dots on a white sphere; dark inverts the
@@ -419,7 +419,7 @@ export class CognitiveMirrorEngine {
     if (spawn) this._flash(n.id, 2.8, performance.now() / 1000); // pop into existence
   }
 
-  /** Cross-domain RELATES_TO (gold) + CONTRADICTS (crimson) arcs — deduped. */
+  /** Cross-domain RELATES_TO (purple) + CONTRADICTS (crimson) arcs — deduped. */
   private _addArc(e: GraphEdgeDto) {
     const a = this.nodeMeta[e.from];
     const b = this.nodeMeta[e.to];
@@ -433,7 +433,7 @@ export class CognitiveMirrorEngine {
         this.arcKeys.add(key);
       }
     } else if (e.type === "RELATES_TO" && a.domain && b.domain && a.domain !== b.domain) {
-      const arc = this._makeArc(e.from, e.to, 0.012, this.GOLD);
+      const arc = this._makeArc(e.from, e.to, 0.006, this.PURPLE);
       if (arc) {
         this.arcs.push(arc);
         this.arcKeys.add(key);
@@ -452,7 +452,7 @@ export class CognitiveMirrorEngine {
     const ids = [d.id, d.from, d.to].filter((x): x is string => typeof x === "string" && !!this.nmap[x]);
     const now = performance.now() / 1000;
     if (evt.type === "write" && ids.length >= 2) {
-      this._hop(ids[0]!, ids[1]!, evt.detail?.type === "CONTRADICTS" ? this.CRIMSON : this.GOLD);
+      this._hop(ids[0]!, ids[1]!, evt.detail?.type === "CONTRADICTS" ? this.CRIMSON : this.PURPLE);
     }
     for (const id of ids) this._flash(id, 1.8, now);
   }
@@ -846,6 +846,11 @@ export class CognitiveMirrorEngine {
     }
   }
 
+  /**
+   * A connection rendered as a solid tube (linewidth is ignored in WebGL, so a
+   * tube gives real thickness). `radius` sets the thickness; `color` the tint.
+   * A gentle opacity breathe is applied per-frame in the render loop.
+   */
   private _makeArc(aId: string, bId: string, radius: number, color: string) {
     const T = this.T, na = this.nmap[aId], nb = this.nmap[bId];
     if (!na || !nb) return null;
@@ -853,8 +858,8 @@ export class CognitiveMirrorEngine {
     const bow = na.pos.distanceTo(nb.pos) * 0.32;
     mid.normalize().multiplyScalar(Math.min(this.R + bow, this.R + 1.0));
     const curve = new T.QuadraticBezierCurve3(na.pos.clone(), mid, nb.pos.clone());
-    const geo = new T.TubeGeometry(curve, 48, radius, 7, false);
-    const mat = new T.MeshBasicMaterial({ color: new T.Color(color), transparent: true, opacity: 0.7, depthTest: false, depthWrite: false });
+    const geo = new T.TubeGeometry(curve, 40, radius, 8, false);
+    const mat = new T.MeshBasicMaterial({ color: new T.Color(color), transparent: true, opacity: 0.85, depthTest: false, depthWrite: false });
     const mesh = new T.Mesh(geo, mat);
     this.group.add(mesh);
     return { mesh, mat, curve };
@@ -922,8 +927,7 @@ export class CognitiveMirrorEngine {
       }
     }
     for (const a of this.arcs) {
-      const f = a.curve.v1;
-      a.mat.opacity = 0.5 + 0.28 * Math.sin(now * 1.1 + f.x);
+      a.mat.opacity = 0.72 + 0.16 * Math.sin(now * 1.1 + a.curve.v1.x);
     }
     this._tickPackets(now);
     this._tickFlashes(now);
@@ -1090,7 +1094,7 @@ export class CognitiveMirrorEngine {
     const a = ids[Math.floor(Math.random() * ids.length)]!;
     let b = ids[Math.floor(Math.random() * ids.length)]!, guard = 0;
     while (b === a && guard++ < 8) b = ids[Math.floor(Math.random() * ids.length)]!;
-    const arc = this._makeArc(a, b, 0.009, this.GOLD);
+    const arc = this._makeArc(a, b, 0.006, this.PURPLE);
     if (!arc) return;
     arc.mat.opacity = 0;
     this._flash(a, 1.8, now);
@@ -1099,9 +1103,7 @@ export class CognitiveMirrorEngine {
       t0: now,
       dur: 5.0,
       update: (t: number) => {
-        if (t < 0.16) arc.mat.opacity = (t / 0.16) * 0.8;
-        else if (t > 0.7) arc.mat.opacity = 0.8 * (1 - (t - 0.7) / 0.3);
-        else arc.mat.opacity = 0.8;
+        arc.mat.opacity = t < 0.16 ? (t / 0.16) * 0.85 : t > 0.7 ? 0.85 * (1 - (t - 0.7) / 0.3) : 0.85;
       },
       cleanup: () => {
         this.group.remove(arc.mesh);
@@ -1214,7 +1216,7 @@ export class CognitiveMirrorEngine {
       `Closest in your graph: ${lead.title}. ${lead.summary}` +
       (others ? `\n\nIt connects to ${others}.` : "");
     this.setState((s) => ({
-      traceLines: [...s.traceLines, { n: String(hits.length + 1).padStart(2, "0"), label: "RETRIEVED FROM YOUR GRAPH", detail: "", accent: this.GOLD }],
+      traceLines: [...s.traceLines, { n: String(hits.length + 1).padStart(2, "0"), label: "RETRIEVED FROM YOUR GRAPH", detail: "", accent: this.PURPLE }],
       queryState: "answered",
       showAnswer: true,
       noMatch: false,
@@ -1256,7 +1258,7 @@ export class CognitiveMirrorEngine {
     const na = this.nmap[fromId], nb = this.nmap[toId];
     if (!na || !nb) return;
     const now = performance.now() / 1000;
-    const gold = hex === this.GOLD || hex === this.CRIMSON;
+    const gold = hex === this.PURPLE || hex === this.CRIMSON;
     const mid = na.pos.clone().add(nb.pos).multiplyScalar(0.5);
     const bow = na.pos.distanceTo(nb.pos) * (gold ? 0.34 : 0.16);
     mid.normalize().multiplyScalar(this.R + bow);

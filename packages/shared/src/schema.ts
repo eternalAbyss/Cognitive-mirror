@@ -57,6 +57,12 @@ export const GraphNodeSchema = z.object({
   archived: z.boolean().default(false),
   createdAt: z.string(),
   updatedAt: z.string(),
+  /**
+   * Stable external identity for a re-ingestible artifact (e.g. "github:owner/repo").
+   * When set, enrichment upserts on it so re-pulling the same artifact updates the
+   * existing node instead of creating a duplicate (design §2 idempotency).
+   */
+  externalId: z.string().optional(),
   /** Free-form provenance / source metadata, JSON-stringified at the storage layer. */
   metadata: z.record(z.unknown()).optional(),
 });
