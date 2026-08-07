@@ -45,13 +45,18 @@ export function startWorker(queue: JobQueue, graph: GraphClient): () => void {
         queue.complete(job.id);
       } catch (err) {
         const msg = String((err as Error)?.message ?? err);
-        const before = queue.stats().failed;
-        queue.fail(job.id, msg);
         if (err instanceof BudgetExceededError) {
-          log.warn({ msg }, "budget breaker tripped; pausing enrichment");
+          // Hitting the cap says nothing about the job — it was never attempted.
+          // Releasing it (rather than failing it) keeps its attempt count intact;
+          // otherwise five budget trips would permanently mark a perfectly good
+          // job 'failed' and its captured content would be lost.
+          queue.release(job.id, msg);
+          log.warn({ jobId: job.id, msg }, "budget breaker tripped; re-queued job and pausing");
           void notify("API budget breaker tripped", msg, "high", ["dollar"]);
           await sleep(BUDGET_PAUSE_MS);
         } else {
+          const before = queue.stats().failed;
+          queue.fail(job.id, msg);
           log.warn({ jobId: job.id, err: msg }, "job failed; will retry with backoff");
           // Alert only when a job exhausts its retries (new 'failed' entry).
           if (queue.stats().failed > before) {

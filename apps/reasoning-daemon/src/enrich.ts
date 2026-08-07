@@ -64,14 +64,17 @@ export async function enrichJob(
     content: payload.text,
     confidence: result.source.confidence ?? payload.confidence,
     asOf: payload.occurredAt?.slice(0, 10),
-    ...(externalId ? { externalId } : {}),
     metadata: { source: payload.source, url: payload.url, kind: payload.kind },
   };
 
   if (existing) {
+    // `externalId` is deliberately not in the patch: it's the key we just looked
+    // the node up by, so re-writing it is a no-op — and it's a protected property
+    // precisely because a patch that *changed* it would silently re-point every
+    // future upsert of this artifact at the wrong node.
     ops.push({ kind: "updateNode", id: sourceId, patch: sourceFields });
   } else {
-    const sourceNode: NewNode = { type: "Source", ...sourceFields };
+    const sourceNode: NewNode = { type: "Source", ...sourceFields, ...(externalId ? { externalId } : {}) };
     ops.push({ kind: "createNode", id: sourceId, node: sourceNode });
   }
 

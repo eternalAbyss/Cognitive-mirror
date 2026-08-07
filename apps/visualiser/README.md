@@ -3,20 +3,32 @@
 > 📖 Part of Cognitive-mirror — see the [full documentation](../../documentation.md) for
 > architecture, setup, the API endpoints, and how this fits the whole system.
 
-The navigable, real-time display layer (design §15 Phase 4). This is a faithful port of the
-Claude Design prototype the user handed off (`design/original.dc.html`) into a Next.js app.
+The navigable, real-time display layer — a Next.js app rendering the live graph and the
+reasoning traces over it.
 
-**Aesthetic:** the final design is **light monochrome** — a white void, dark wireframe knowledge
-sphere behind frosted-white glass HUD panels (JetBrains Mono + Space Grotesk), with muted cyan
-(`#0E86A8`) for "thinking" traces and gold (`#D8A63E`) for "arriving" syntheses. Cross-domain
-connections are drawn in purple (`#8B5CF6`). (This refines
-away from the dark-Tron look in `design/design-brief.md` — match the HTML, not the brief.)
+**Aesthetic:** **light monochrome** by default — a white void, dark wireframe knowledge sphere
+behind frosted-white glass HUD panels (JetBrains Mono + Space Grotesk), with muted cyan
+(`#0E86A8`) for "thinking" traces and gold for both cross-domain connections and "arriving"
+syntheses. A dark theme inverts the grayscale ramps.
+
+**Connection lines** are tubes, not lines — WebGL ignores `linewidth`, so thickness is the tube
+radius. Three roles, distinguished by colour *and* weight so they stay readable at a glance:
+
+| Role | Colour | Tube radius |
+|---|---|---|
+| Cross-domain `RELATES_TO` | gold — `#B07B16` light / `#D8A63E` dark | `0.009` |
+| `CONTRADICTS` | crimson `#C2557A` | `0.011` — the heaviest, deliberately |
+| Live query traversal | cyan `#0E86A8` | `0.008`, transient |
+
+Gold is theme-dependent: `#D8A63E` (the same gold as the synthesis flare) is illegible on the
+white theme, so the light theme drops to a deeper, less luminous gold. `setTheme()` re-tints
+existing arcs, which is why each one carries an `ArcRole` rather than a baked-in hex.
 
 ## What's implemented (this pass)
 - **Welcome / command glass:** live clock, weather card, 3-card Daily Brief, the Open-Loop
   resurfacing card, the "Ask your second brain…" command line, and the cockpit status bar.
 - **Knowledge sphere:** a Three.js icosphere of glowing nodes in five domain clusters, named
-  nodes with labels, purple cross-domain connection lines, depth-faded wireframe, drifting
+  nodes with labels, gold cross-domain connection lines, depth-faded wireframe, drifting
   rotation, mouse parallax, and time-of-day tint.
 - **"Watch Claude think":** the scripted query traversal (cyan packets → cross-domain hop →
   convergence ring → gold synthesis flare → trace-back), the Reasoning-Trace console, anchored

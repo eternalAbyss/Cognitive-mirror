@@ -103,27 +103,32 @@ export async function resolveApproval(id: string, decision: "approve" | "reject"
   const action = (props.action as ApprovalAction) ?? "delete";
   const subjectIds = safeIds(props.subjectIds);
 
+  // Claim the approval BEFORE acting on it. The status check above is not
+  // enough on its own: two concurrent resolve calls both saw 'pending' and both
+  // replayed the ops, double-applying a merge or tombstone. This write only
+  // matches while the status is still 'pending', so exactly one caller wins.
+  const claim = await query<{ claimed: number }>(
+    `MATCH (a:Approval {id: $id}) WHERE a.status = 'pending'
+       SET a.status = $status, a.resolvedAt = $ts
+       RETURN 1 AS claimed`,
+    { id, status: decision === "approve" ? "approved" : "rejected", ts: new Date().toISOString() },
+  );
+  if (!claim.length) return { ok: false, reason: "already_resolved" };
+
   if (decision === "approve") {
     const ops = safeOps(props.ops);
     const res = await executeOps(ops, `approved ${action}: ${props.title}`);
-    await query(`MATCH (a:Approval {id: $id}) SET a.status = 'approved', a.resolvedAt = $ts`, {
-      id,
-      ts: new Date().toISOString(),
-    });
     return { ok: true, decision, opLogId: res.opLogId };
   }
 
-  // reject → mark + cool down the subjects so we aren't re-asked next run.
+  // reject → cool down the subjects so we aren't re-asked next run. The
+  // approval itself was already marked rejected by the claim above.
   const until = new Date(Date.now() + REJECT_COOLDOWN_MS).toISOString();
   const prop = action === "merge" ? "mergeCooldownUntil" : "cleanupRejectedUntil";
   await query(
     `UNWIND $ids AS sid MATCH (n:Node {id: sid}) SET n.\`${prop}\` = $until`,
     { ids: subjectIds, until },
   );
-  await query(`MATCH (a:Approval {id: $id}) SET a.status = 'rejected', a.resolvedAt = $ts`, {
-    id,
-    ts: new Date().toISOString(),
-  });
   return { ok: true, decision };
 }
 

@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
 
 /**
- * Best-effort macOS Keychain read (design §4: secrets in Keychain, never plaintext
- * env on the Mac Mini). Returns undefined on any platform other than macOS, or
- * when the item is missing — callers fall back to environment variables.
+ * Best-effort macOS Keychain read, so secrets need never sit in a plaintext env
+ * file. Returns undefined on any platform other than macOS, or when the item is
+ * missing — callers fall back to environment variables.
  *
  *   security add-generic-password -a "$USER" -s cm-anthropic-api-key -w "sk-ant-..."
  */

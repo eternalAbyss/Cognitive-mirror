@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { loadConfig } from "@cm/shared";
 import { Budget, BudgetExceededError } from "../src/budget.js";
 
 const dirs: string[] = [];
@@ -60,5 +61,34 @@ describe("Budget persistence", () => {
     writeFileSync(statePath, "{ not json");
     const b = new Budget({ statePath, prices, dailyCap: 100, monthlyCap: 1000 });
     expect(b.snapshot().spendUsd).toBe(0);
+  });
+});
+
+describe("Budget default pricing", () => {
+  // Regression guard for the bug where MODEL_PRICES was never read from the
+  // config schema: the price table came back empty, every call cost $0, and the
+  // daily cap could not trip no matter what DAILY_BUDGET_USD said.
+  it("ships a price for every model the app is configured to use", () => {
+    for (const model of ["MODEL_ENRICH", "MODEL_ADJUDICATE", "MODEL_INSIGHT"] as const) {
+      const id = loadConfig()[model];
+      expect(loadConfig().modelPrices[id], `no price for ${model}=${id}`).toBeDefined();
+    }
+  });
+
+  it("counts spend and trips the breaker using the built-in prices", () => {
+    const statePath = tmpStatePath();
+    const model = loadConfig().MODEL_ENRICH;
+    const b = new Budget({ statePath, dailyCap: 1, monthlyCap: 1000 });
+    b.record(model, { input: 2_000_000, output: 0 }); // > $1 at any real price
+    expect(b.snapshot().spendUsd).toBeGreaterThan(0);
+    expect(() => b.check()).toThrow(BudgetExceededError);
+  });
+
+  it("counts an unpriced model as zero without throwing", () => {
+    const statePath = tmpStatePath();
+    const b = new Budget({ statePath, prices, dailyCap: 1, monthlyCap: 1000 });
+    b.record("some-model-nobody-priced", { input: 9_000_000, output: 9_000_000 });
+    expect(b.snapshot().spendUsd).toBe(0);
+    expect(() => b.check()).not.toThrow();
   });
 });

@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { loadConfig, childLogger } from "@cm/shared";
+import { loadConfig, childLogger, type ModelPrice } from "@cm/shared";
 
 const log = childLogger("daemon:budget");
 
@@ -11,11 +11,6 @@ export class BudgetExceededError extends Error {
     super(message);
     this.name = "BudgetExceededError";
   }
-}
-
-interface ModelPrice {
-  in: number; // USD per 1M input tokens
-  out: number; // USD per 1M output tokens
 }
 
 interface BudgetState {
@@ -33,10 +28,12 @@ interface BudgetOptions {
 }
 
 /**
- * Budget counter + circuit breaker (design §6). Prices are NOT hardcoded — they
- * come from the MODEL_PRICES env (JSON: {"model":{"in":N,"out":N}} USD per Mtok).
- * If a model's price is absent, cost is counted as 0 (tokens are still tracked),
- * so the breaker simply won't trip until prices are configured.
+ * Budget counter + circuit breaker (design §6). Prices come from
+ * `config.modelPrices` — the built-in table for the models this project ships
+ * with, overridable per-model via the MODEL_PRICES env (JSON:
+ * {"model":{"in":N,"out":N}} USD per Mtok). A model with no price still has its
+ * tokens tracked but contributes $0 to spend, so `record` warns once per such
+ * model rather than letting the caps quietly stop applying.
  *
  * State is write-through persisted to BUDGET_STATE_PATH so spend survives daemon
  * restarts (the breaker can't be reset just by bouncing the process). Day/month
@@ -49,13 +46,15 @@ class Budget {
   private readonly prices: Record<string, ModelPrice>;
   private readonly dailyCap: number;
   private readonly monthlyCap: number;
+  /** Models already warned about, so the warning is once per process, not per call. */
+  private readonly unpricedWarned = new Set<string>();
 
   constructor(opts: BudgetOptions = {}) {
     const cfg = loadConfig();
     this.statePath = opts.statePath ?? cfg.BUDGET_STATE_PATH;
     this.dailyCap = opts.dailyCap ?? cfg.DAILY_BUDGET_USD;
     this.monthlyCap = opts.monthlyCap ?? cfg.MONTHLY_BUDGET_USD;
-    this.prices = opts.prices ?? parsePrices(process.env.MODEL_PRICES);
+    this.prices = opts.prices ?? cfg.modelPrices;
     this.state = this.load();
     this.rollover(); // a stale persisted day/month is zeroed on boot
   }
@@ -132,6 +131,16 @@ class Budget {
       this.state.spendUsd += cost;
       this.state.monthSpendUsd += cost;
       this.persist();
+    } else if (!this.unpricedWarned.has(model)) {
+      // An unpriced model costs $0 as far as the breaker is concerned, so the
+      // caps silently stop applying to it. Say so once, at warn level — the
+      // whole point of the built-in price table is that this never happens
+      // quietly again.
+      this.unpricedWarned.add(model);
+      log.warn(
+        { model },
+        "no price for this model — its spend is NOT counted and the budget breaker cannot trip for it; add it to MODEL_PRICES",
+      );
     }
     log.debug(
       { model, ...usage, spendUsd: Number(this.state.spendUsd.toFixed(4)) },
@@ -157,16 +166,6 @@ function utcDay(): string {
 
 function utcMonth(): string {
   return new Date().toISOString().slice(0, 7);
-}
-
-function parsePrices(raw: string | undefined): Record<string, ModelPrice> {
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw) as Record<string, ModelPrice>;
-  } catch {
-    log.warn("MODEL_PRICES is not valid JSON; ignoring");
-    return {};
-  }
 }
 
 export { Budget };

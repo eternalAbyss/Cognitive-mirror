@@ -10,7 +10,9 @@ export async function fetchArxiv(maxResults = 20): Promise<BriefCandidate[]> {
   const { arxivCategories } = loadConfig();
   if (arxivCategories.length === 0) return [];
   const query = arxivCategories.map((c) => `cat:${c}`).join("+OR+");
-  const url = `http://export.arxiv.org/api/query?search_query=${query}&sortBy=submittedDate&sortOrder=descending&max_results=${maxResults}`;
+  // https, not http: this content is fed to the model and written into the
+  // graph, so a MITM on a cleartext fetch could inject arbitrary "papers".
+  const url = `https://export.arxiv.org/api/query?search_query=${query}&sortBy=submittedDate&sortOrder=descending&max_results=${maxResults}`;
   try {
     const feed = await parser.parseURL(url);
     return (feed.items ?? []).map((it) => ({

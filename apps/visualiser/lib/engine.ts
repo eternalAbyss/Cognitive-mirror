@@ -38,6 +38,16 @@ export interface ViewState {
   noMatch: boolean;
 }
 
+/**
+ * What a drawn arc represents. Arcs are re-coloured on a theme switch, so each
+ * one carries its role rather than a baked-in hex.
+ *  - `relates`     cross-domain RELATES_TO — gold, the signature connection
+ *  - `contradicts` CONTRADICTS — crimson, kept distinct because "these two ideas
+ *                  conflict" is a different claim from "these two ideas connect"
+ *  - `query`       a live traversal hop during a search — cyan, transient
+ */
+export type ArcRole = "relates" | "contradicts" | "query";
+
 // Cosine DISTANCE threshold for "this query is actually in the graph" (lower = closer).
 // Above this, the nearest node is too unrelated to claim as an answer.
 const MATCH_MAX_DISTANCE = 0.4;
@@ -150,8 +160,23 @@ export class CognitiveMirrorEngine {
   private dataLoaded = false;
 
   private CYAN = "#0E86A8";
-  private PURPLE = "#8B5CF6"; // purple cross-domain connection lines
   private CRIMSON = "#C2557A";
+  // Cross-domain connection lines are gold (design brief §"cross-domain arcs").
+  // Two shades because the arcs sit on very different backgrounds: the bright
+  // #D8A63E (the same gold as the synthesis flare) disappears against the white
+  // theme, so the light theme uses a deeper, less luminous gold.
+  private GOLD_LIGHT = "#B07B16";
+  private GOLD_DARK = "#D8A63E";
+
+  /** Current gold for the active theme. */
+  private _gold(): string {
+    return this.dark ? this.GOLD_DARK : this.GOLD_LIGHT;
+  }
+
+  /** The colour a persistent arc should currently be, given what it represents. */
+  private _arcColor(role: ArcRole): string {
+    return role === "contradicts" ? this.CRIMSON : role === "query" ? this.CYAN : this._gold();
+  }
 
   // Theme: light renders dark-ink dots on a white sphere; dark inverts the
   // grayscale ramps in the shaders and lightens the data nodes/labels.
@@ -187,6 +212,8 @@ export class CognitiveMirrorEngine {
     if (this.lineMat?.uniforms?.uDark) this.lineMat.uniforms.uDark.value = u;
     const fg = this._fg();
     for (const id in this.sprites) this.sprites[id]?.material?.color?.set(fg);
+    // Gold is theme-dependent, so persistent arcs have to be re-tinted too.
+    for (const a of this.arcs) a.mat.color.set(this._arcColor(a.role));
     this._applyTint();
     this._rebuildLabels();
   }
@@ -419,7 +446,7 @@ export class CognitiveMirrorEngine {
     if (spawn) this._flash(n.id, 2.8, performance.now() / 1000); // pop into existence
   }
 
-  /** Cross-domain RELATES_TO (purple) + CONTRADICTS (crimson) arcs — deduped. */
+  /** Cross-domain RELATES_TO (gold) + CONTRADICTS (crimson) arcs — deduped. */
   private _addArc(e: GraphEdgeDto) {
     const a = this.nodeMeta[e.from];
     const b = this.nodeMeta[e.to];
@@ -427,13 +454,13 @@ export class CognitiveMirrorEngine {
     const key = `${e.from}->${e.to}:${e.type}`;
     if (this.arcKeys.has(key)) return;
     if (e.type === "CONTRADICTS") {
-      const arc = this._makeArc(e.from, e.to, 0.011, this.CRIMSON);
+      const arc = this._makeArc(e.from, e.to, 0.011, "contradicts");
       if (arc) {
         this.arcs.push(arc);
         this.arcKeys.add(key);
       }
     } else if (e.type === "RELATES_TO" && a.domain && b.domain && a.domain !== b.domain) {
-      const arc = this._makeArc(e.from, e.to, 0.006, this.PURPLE);
+      const arc = this._makeArc(e.from, e.to, 0.009, "relates");
       if (arc) {
         this.arcs.push(arc);
         this.arcKeys.add(key);
@@ -452,7 +479,7 @@ export class CognitiveMirrorEngine {
     const ids = [d.id, d.from, d.to].filter((x): x is string => typeof x === "string" && !!this.nmap[x]);
     const now = performance.now() / 1000;
     if (evt.type === "write" && ids.length >= 2) {
-      this._hop(ids[0]!, ids[1]!, evt.detail?.type === "CONTRADICTS" ? this.CRIMSON : this.PURPLE);
+      this._hop(ids[0]!, ids[1]!, evt.detail?.type === "CONTRADICTS" ? "contradicts" : "relates");
     }
     for (const id of ids) this._flash(id, 1.8, now);
   }
@@ -848,10 +875,11 @@ export class CognitiveMirrorEngine {
 
   /**
    * A connection rendered as a solid tube (linewidth is ignored in WebGL, so a
-   * tube gives real thickness). `radius` sets the thickness; `color` the tint.
+   * tube gives real thickness). `radius` sets the thickness; `role` the tint,
+   * which is re-resolved on a theme switch rather than baked in.
    * A gentle opacity breathe is applied per-frame in the render loop.
    */
-  private _makeArc(aId: string, bId: string, radius: number, color: string) {
+  private _makeArc(aId: string, bId: string, radius: number, role: ArcRole) {
     const T = this.T, na = this.nmap[aId], nb = this.nmap[bId];
     if (!na || !nb) return null;
     const mid = na.pos.clone().add(nb.pos).multiplyScalar(0.5);
@@ -859,10 +887,10 @@ export class CognitiveMirrorEngine {
     mid.normalize().multiplyScalar(Math.min(this.R + bow, this.R + 1.0));
     const curve = new T.QuadraticBezierCurve3(na.pos.clone(), mid, nb.pos.clone());
     const geo = new T.TubeGeometry(curve, 40, radius, 8, false);
-    const mat = new T.MeshBasicMaterial({ color: new T.Color(color), transparent: true, opacity: 0.85, depthTest: false, depthWrite: false });
+    const mat = new T.MeshBasicMaterial({ color: new T.Color(this._arcColor(role)), transparent: true, opacity: 0.85, depthTest: false, depthWrite: false });
     const mesh = new T.Mesh(geo, mat);
     this.group.add(mesh);
-    return { mesh, mat, curve };
+    return { mesh, mat, curve, role };
   }
 
   // ── render loop ─────────────────────────────────────────────────────────────
@@ -1094,7 +1122,7 @@ export class CognitiveMirrorEngine {
     const a = ids[Math.floor(Math.random() * ids.length)]!;
     let b = ids[Math.floor(Math.random() * ids.length)]!, guard = 0;
     while (b === a && guard++ < 8) b = ids[Math.floor(Math.random() * ids.length)]!;
-    const arc = this._makeArc(a, b, 0.006, this.PURPLE);
+    const arc = this._makeArc(a, b, 0.009, "relates");
     if (!arc) return;
     arc.mat.opacity = 0;
     this._flash(a, 1.8, now);
@@ -1177,7 +1205,7 @@ export class CognitiveMirrorEngine {
     };
     hits.forEach((hit, i) => {
       at(i === 0 ? 360 : 660, () => {
-        if (i > 0) this._hop(hits[i - 1]!.id, hit.id, this.CYAN);
+        if (i > 0) this._hop(hits[i - 1]!.id, hit.id, "query");
         this._focusNode(hit.id);
         this._visitLive(hit, i);
         this.setState({ traverseStage: `reading · ${hit.type}` });
@@ -1216,7 +1244,7 @@ export class CognitiveMirrorEngine {
       `Closest in your graph: ${lead.title}. ${lead.summary}` +
       (others ? `\n\nIt connects to ${others}.` : "");
     this.setState((s) => ({
-      traceLines: [...s.traceLines, { n: String(hits.length + 1).padStart(2, "0"), label: "RETRIEVED FROM YOUR GRAPH", detail: "", accent: this.PURPLE }],
+      traceLines: [...s.traceLines, { n: String(hits.length + 1).padStart(2, "0"), label: "RETRIEVED FROM YOUR GRAPH", detail: "", accent: this._gold() }],
       queryState: "answered",
       showAnswer: true,
       noMatch: false,
@@ -1254,26 +1282,32 @@ export class CognitiveMirrorEngine {
     return g;
   }
 
-  private _hop(fromId: string, toId: string, hex: string) {
+  /**
+   * A one-off travelling arc: a real graph write (`relates`/`contradicts`) or a
+   * step in a live search traversal (`query`). Writes get the heavier treatment
+   * — a fatter, higher-bowed tube and a gold packet — because they're the rarer,
+   * more significant event.
+   */
+  private _hop(fromId: string, toId: string, role: ArcRole) {
     const na = this.nmap[fromId], nb = this.nmap[toId];
     if (!na || !nb) return;
     const now = performance.now() / 1000;
-    const gold = hex === this.PURPLE || hex === this.CRIMSON;
+    const major = role !== "query";
     const mid = na.pos.clone().add(nb.pos).multiplyScalar(0.5);
-    const bow = na.pos.distanceTo(nb.pos) * (gold ? 0.34 : 0.16);
+    const bow = na.pos.distanceTo(nb.pos) * (major ? 0.34 : 0.16);
     mid.normalize().multiplyScalar(this.R + bow);
     const curve = new this.T.QuadraticBezierCurve3(na.pos.clone(), mid, nb.pos.clone());
-    const geo = new this.T.TubeGeometry(curve, gold ? 56 : 42, gold ? 0.013 : 0.008, 6, false);
-    const mat = new this.T.MeshBasicMaterial({ color: new this.T.Color(hex), transparent: true, opacity: 0, depthTest: false, depthWrite: false });
+    const geo = new this.T.TubeGeometry(curve, major ? 56 : 42, major ? 0.013 : 0.008, 6, false);
+    const mat = new this.T.MeshBasicMaterial({ color: new this.T.Color(this._arcColor(role)), transparent: true, opacity: 0, depthTest: false, depthWrite: false });
     const mesh = new this.T.Mesh(geo, mat);
     this.group.add(mesh);
     this.trail.push(mesh);
-    this.transients.push({ t0: now, dur: 0.5, update: (tt: number) => { mat.opacity = tt * (gold ? 0.92 : 0.7); }, cleanup: () => { mat.opacity = gold ? 0.92 : 0.7; } });
-    const sp = this._mkPacket(gold ? "#D8A63E" : "#19A6CE");
+    this.transients.push({ t0: now, dur: 0.5, update: (tt: number) => { mat.opacity = tt * (major ? 0.92 : 0.7); }, cleanup: () => { mat.opacity = major ? 0.92 : 0.7; } });
+    const sp = this._mkPacket(major ? this.GOLD_DARK : "#19A6CE");
     sp.position.copy(na.pos);
     sp.scale.setScalar(0.6);
     this.group.add(sp);
-    this.packets.push({ sp, curve, t0: now, dur: (gold ? 1.0 : 0.74) / (this.speed || 1), group: true });
+    this.packets.push({ sp, curve, t0: now, dur: (major ? 1.0 : 0.74) / (this.speed || 1), group: true });
   }
 
   private _converge(ids: string[]) {

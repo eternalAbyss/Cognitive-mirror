@@ -14,6 +14,24 @@ import {
   graphSnapshot,
 } from "./maintenance.js";
 
+/**
+ * Query-string numbers, with junk falling back to the default.
+ *
+ * `Number("abc")` is NaN, and NaN survives every `Math.max`/`Math.min`/
+ * `Math.floor` clamp downstream — so it used to reach Cypher as the literal
+ * `LIMIT NaN` and come back as a 500. `?limit=abc` should quietly mean "the
+ * default", not "server error".
+ */
+function intParam(raw: string | undefined, fallback: number): number {
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.trunc(n) : fallback;
+}
+
+function floatParam(raw: string | undefined, fallback: number): number {
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 const EmbeddingBody = z.object({
   embedding: z.array(z.number()),
   k: z.number().int().positive().optional(),
@@ -76,14 +94,12 @@ export function buildApi(): Hono {
   });
 
   app.get("/oplog", async (c) => {
-    const limit = Number(c.req.query("limit") ?? 50);
-    return c.json({ entries: await recentOpLog(limit) });
+    return c.json({ entries: await recentOpLog(intParam(c.req.query("limit"), 50)) });
   });
 
   // ── Maintenance engine support (design §9) ─────────────────────────────────
   app.get("/maintenance/merge-candidates", async (c) => {
-    const max = Number(c.req.query("max") ?? 0.3);
-    return c.json({ candidates: await mergeCandidates(max) });
+    return c.json({ candidates: await mergeCandidates(floatParam(c.req.query("max"), 0.3)) });
   });
 
   app.get("/maintenance/cross-domain", async (c) => {
@@ -91,21 +107,18 @@ export function buildApi(): Hono {
   });
 
   app.get("/maintenance/resurface", async (c) => {
-    const limit = Number(c.req.query("limit") ?? 5);
-    return c.json({ items: await resurfaceQueue(limit) });
+    return c.json({ items: await resurfaceQueue(intParam(c.req.query("limit"), 5)) });
   });
 
   app.get("/stats/counts", async (c) => c.json({ counts: await countsByType() }));
 
   app.get("/graph", async (c) => {
-    const limit = Number(c.req.query("limit") ?? 1200);
-    return c.json(await graphSnapshot(limit));
+    return c.json(await graphSnapshot(intParam(c.req.query("limit"), 1200)));
   });
 
   app.get("/nodes", async (c) => {
     const type = c.req.query("type") ?? "";
-    const limit = Number(c.req.query("limit") ?? 1000);
-    return c.json({ nodes: await listByType(type, limit) });
+    return c.json({ nodes: await listByType(type, intParam(c.req.query("limit"), 1000)) });
   });
 
   // Look up a node by its stable external identity (enrichment idempotency).

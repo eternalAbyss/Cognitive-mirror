@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { z } from "zod";
 import { JOB_TYPE_ENRICH, loadConfig, type EnrichPayload } from "@cm/shared";
@@ -15,13 +16,35 @@ const IngestBody = z.object({
   occurredAt: z.string().optional(),
 });
 
-/** Bearer or ?token= must match INGEST_TOKEN when one is configured. */
-function authorized(c: { req: { header: (n: string) => string | undefined; query: (n: string) => string | undefined } }): boolean {
-  const expected = loadConfig().INGEST_TOKEN;
-  if (!expected) return true; // local dev: no token configured
+/** Length-independent constant-time compare, so a bad token leaks no timing. */
+function secretEquals(a: string, b: string): boolean {
+  const ab = Buffer.from(a, "utf8");
+  const bb = Buffer.from(b, "utf8");
+  // timingSafeEqual throws on a length mismatch, which would itself be a
+  // timing signal — compare equal-length buffers and fold length into the result.
+  if (ab.length !== bb.length) return timingSafeEqual(ab, ab) && false;
+  return timingSafeEqual(ab, bb);
+}
+
+/**
+ * A Bearer token must match INGEST_TOKEN.
+ *
+ * This fails **closed**: with no INGEST_TOKEN set, /ingest is rejected rather
+ * than opened. It used to be the other way round, which meant the default
+ * configuration shipped an unauthenticated write endpoint. Set
+ * ALLOW_ANONYMOUS_INGEST=true to opt back into the open behaviour for local
+ * development — an explicit choice, logged at startup.
+ *
+ * The token is only read from the Authorization header. The old `?token=`
+ * fallback put a secret in query strings, where it lands in access logs,
+ * browser history, and Referer headers.
+ */
+function authorized(c: { req: { header: (n: string) => string | undefined } }): boolean {
+  const cfg = loadConfig();
+  if (!cfg.INGEST_TOKEN) return cfg.ALLOW_ANONYMOUS_INGEST;
   const auth = c.req.header("authorization");
-  const bearer = auth?.toLowerCase().startsWith("bearer ") ? auth.slice(7) : undefined;
-  return (bearer ?? c.req.query("token")) === expected;
+  if (!auth?.toLowerCase().startsWith("bearer ")) return false;
+  return secretEquals(auth.slice(7), cfg.INGEST_TOKEN);
 }
 
 /**

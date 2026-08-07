@@ -29,7 +29,10 @@ export async function embed(text: string): Promise<number[]> {
 export function chunkText(text: string): string[] {
   const cfg = loadConfig();
   const size = Math.max(1, cfg.CHUNK_TOKENS) * 4;
-  const overlap = Math.max(0, cfg.CHUNK_OVERLAP) * 4;
+  // Clamped to size - 1: both values are unvalidated env numbers, and an
+  // overlap >= size makes the loop step below zero and never terminate,
+  // appending chunks until the process runs out of memory.
+  const overlap = Math.min(Math.max(0, cfg.CHUNK_OVERLAP) * 4, size - 1);
   const clean = text.trim();
   if (clean.length <= size) return clean.length ? [clean] : [];
 

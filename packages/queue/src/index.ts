@@ -52,6 +52,13 @@ export interface EnqueueResult {
 
 const BASE_BACKOFF_MS = 5_000;
 
+/**
+ * How long a lease is honoured before `reclaimStale` takes the job back.
+ * Generous, because a legitimate enrich job can be slow: several Anthropic
+ * calls plus embedding every chunk.
+ */
+const LEASE_TTL_MS = 30 * 60_000;
+
 export class JobQueue {
   private readonly db: DatabaseSync;
 
@@ -75,6 +82,34 @@ export class JobQueue {
       );
       CREATE INDEX IF NOT EXISTS idx_jobs_ready ON jobs (state, next_run_at);
     `);
+    // Added after the initial schema; ALTER on an existing DB is a no-op error.
+    try {
+      this.db.exec("ALTER TABLE jobs ADD COLUMN leased_at INTEGER");
+    } catch {
+      /* column already exists */
+    }
+    this.reclaimStale();
+  }
+
+  /**
+   * Return jobs whose lease has expired to the queue.
+   *
+   * A leased job is only ever un-leased by `complete`/`fail`/`release`, so a
+   * worker killed mid-job — which `scripts/down.sh` does on every shutdown —
+   * used to strand that job in 'leased' forever: never retried, never surfaced
+   * in `failed`, invisible in `stats`. Running this on construction means a
+   * daemon restart is enough to recover them.
+   *
+   * This does not count as an attempt: the job never got a verdict.
+   */
+  reclaimStale(now = Date.now(), ttlMs = LEASE_TTL_MS): number {
+    const info = this.db
+      .prepare(
+        `UPDATE jobs SET state = 'queued', leased_at = NULL, updated_at = ?
+           WHERE state = 'leased' AND COALESCE(leased_at, 0) <= ?`,
+      )
+      .run(now, now - ttlMs);
+    return Number(info.changes);
   }
 
   /** Insert a job, skipping if its content hash already exists (idempotency). */
@@ -126,8 +161,8 @@ export class JobQueue {
         return null;
       }
       this.db
-        .prepare(`UPDATE jobs SET state = 'leased', updated_at = ? WHERE id = ?`)
-        .run(now, row.id);
+        .prepare(`UPDATE jobs SET state = 'leased', leased_at = ?, updated_at = ? WHERE id = ?`)
+        .run(now, now, row.id);
       this.db.exec("COMMIT");
       return toJob({ ...row, state: "leased", updated_at: now });
     } catch (err) {
@@ -138,8 +173,26 @@ export class JobQueue {
 
   complete(id: string): void {
     this.db
-      .prepare(`UPDATE jobs SET state = 'done', updated_at = ? WHERE id = ?`)
+      .prepare(`UPDATE jobs SET state = 'done', leased_at = NULL, updated_at = ? WHERE id = ?`)
       .run(Date.now(), id);
+  }
+
+  /**
+   * Put a leased job back without counting an attempt.
+   *
+   * For conditions that have nothing to do with the job itself — the budget
+   * breaker being open is the motivating case. `fail` would burn one of its
+   * five attempts and eventually discard captured content that was never
+   * actually processed.
+   */
+  release(id: string, reason?: string, delayMs = 0): void {
+    const now = Date.now();
+    this.db
+      .prepare(
+        `UPDATE jobs SET state = 'queued', leased_at = NULL, last_error = ?, next_run_at = ?, updated_at = ?
+           WHERE id = ?`,
+      )
+      .run(reason ?? null, now + delayMs, now, id);
   }
 
   /** Record a failure: retry with exponential backoff, or mark failed at the cap. */
@@ -153,7 +206,7 @@ export class JobQueue {
     if (attempts >= row.max_attempts) {
       this.db
         .prepare(
-          `UPDATE jobs SET state = 'failed', attempts = ?, last_error = ?, updated_at = ? WHERE id = ?`,
+          `UPDATE jobs SET state = 'failed', leased_at = NULL, attempts = ?, last_error = ?, updated_at = ? WHERE id = ?`,
         )
         .run(attempts, error, now, id);
       return;
@@ -161,7 +214,7 @@ export class JobQueue {
     const backoff = BASE_BACKOFF_MS * 2 ** (attempts - 1);
     this.db
       .prepare(
-        `UPDATE jobs SET state = 'queued', attempts = ?, last_error = ?, next_run_at = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE jobs SET state = 'queued', leased_at = NULL, attempts = ?, last_error = ?, next_run_at = ?, updated_at = ? WHERE id = ?`,
       )
       .run(attempts, error, now + backoff, now, id);
   }

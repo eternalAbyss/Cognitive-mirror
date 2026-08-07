@@ -3,14 +3,23 @@ dist/
 .next/
 next-env.d.ts
 *.tsbuildinfo
+.turbo/
+coverage/
+
+# Local state: the graph queue, budget breaker spend, OAuth tokens.
 .data/
 *.sqlite
 *.sqlite-journal
 *.sqlite-wal
 *.sqlite-shm
-.env
-.env.local
+
+# Secrets. Broad by design — .env.example is the only env file that ships.
+.env*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
 .DS_Store
 *.log
-.turbo/
-coverage/

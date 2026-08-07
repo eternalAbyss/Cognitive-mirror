@@ -16,6 +16,23 @@ const log = childLogger("graph-core:execute");
 type Compensation = () => Promise<void>;
 
 /**
+ * Cypher has no bind parameter for a property *name*, so `REMOVE n.\`x\`` below has
+ * to interpolate. `PropertyNameSchema` in @cm/shared already rejects anything but
+ * a plain identifier before an op gets here; this is the second lock on the same
+ * door, so a future caller that reaches executeOps without passing that schema
+ * still can't inject. Throwing (rather than escaping) is deliberate: a key that
+ * fails this test is a bug or an attack, never something to quietly repair.
+ */
+const SAFE_PROPERTY_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function cypherProperty(key: string): string {
+  if (!SAFE_PROPERTY_NAME.test(key)) {
+    throw new Error(`unsafe property name in patch: ${JSON.stringify(key)}`);
+  }
+  return `n.\`${key}\``;
+}
+
+/**
  * The transactional mutation primitive (design §13 Q1). All writes — interactive
  * (via MCP) and autonomous (via the daemon) — funnel through here so there is a
  * single writer and one op-log entry per batch.
@@ -103,7 +120,7 @@ async function applyWithCompensation(
         compensate: async () => {
           if (!before) return; // node didn't exist; SET was a no-op
           if (Object.keys(restore).length) await query(`MATCH (n:Node {id: $id}) SET n += $restore`, { id: op.id, restore });
-          if (removeKeys.length) await query(`MATCH (n:Node {id: $id}) REMOVE ${removeKeys.map((k) => `n.\`${k}\``).join(", ")}`, { id: op.id });
+          if (removeKeys.length) await query(`MATCH (n:Node {id: $id}) REMOVE ${removeKeys.map(cypherProperty).join(", ")}`, { id: op.id });
         },
       };
     }
