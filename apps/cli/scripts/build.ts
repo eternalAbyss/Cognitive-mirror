@@ -236,6 +236,10 @@ function copyAssets(): void {
   mkdirSync(assets, { recursive: true });
   cpSync(join(repoRoot, "docker-compose.yml"), join(assets, "docker-compose.yml"));
   cpSync(join(repoRoot, "LICENSE"), join(cliRoot, "LICENSE"));
+  // The root README is what npmjs.com renders as the package page. Without it
+  // the listing is blank — and npm rewrites relative links against the
+  // `repository` URL, so they keep working there.
+  cpSync(join(repoRoot, "README.md"), join(cliRoot, "README.md"));
 }
 
 main().catch((err: unknown) => {
