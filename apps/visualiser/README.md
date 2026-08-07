@@ -16,9 +16,17 @@ radius. Three roles, distinguished by colour *and* weight so they stay readable 
 
 | Role | Colour | Tube radius |
 |---|---|---|
-| Cross-domain `RELATES_TO` | gold — `#B07B16` light / `#D8A63E` dark | `0.009` |
+| Cross-domain `RELATES_TO` | gold — `#B07B16` light / `#D8A63E` dark | `0.007` |
 | `CONTRADICTS` | crimson `#C2557A` | `0.011` — the heaviest, deliberately |
 | Live query traversal | cyan `#0E86A8` | `0.008`, transient |
+
+`0.007` was picked by looking at a real graph, not by taste. A mature graph has
+well over a thousand cross-domain arcs, and they overlap: at `0.009` the sphere
+fills in to an opaque gold shell that hides the nodes entirely, while `0.006`
+(the original) reads as a hairline once a single arc is isolated. `0.007` keeps
+individual strands traceable and the node dots visible through them. If you
+change it, check against a populated graph — it looks fine at any width when
+there are only a dozen edges.
 
 Gold is theme-dependent: `#D8A63E` (the same gold as the synthesis flare) is illegible on the
 white theme, so the light theme drops to a deeper, less luminous gold. `setTheme()` re-tints

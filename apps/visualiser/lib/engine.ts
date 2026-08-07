@@ -460,7 +460,7 @@ export class CognitiveMirrorEngine {
         this.arcKeys.add(key);
       }
     } else if (e.type === "RELATES_TO" && a.domain && b.domain && a.domain !== b.domain) {
-      const arc = this._makeArc(e.from, e.to, 0.009, "relates");
+      const arc = this._makeArc(e.from, e.to, 0.007, "relates");
       if (arc) {
         this.arcs.push(arc);
         this.arcKeys.add(key);
@@ -1122,7 +1122,7 @@ export class CognitiveMirrorEngine {
     const a = ids[Math.floor(Math.random() * ids.length)]!;
     let b = ids[Math.floor(Math.random() * ids.length)]!, guard = 0;
     while (b === a && guard++ < 8) b = ids[Math.floor(Math.random() * ids.length)]!;
-    const arc = this._makeArc(a, b, 0.009, "relates");
+    const arc = this._makeArc(a, b, 0.007, "relates");
     if (!arc) return;
     arc.mat.opacity = 0;
     this._flash(a, 1.8, now);
