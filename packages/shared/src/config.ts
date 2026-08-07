@@ -111,6 +111,12 @@ const EnvSchema = z.object({
   INGEST_TOKEN: z.string().default(""),
   ALLOW_ANONYMOUS_INGEST: bool(false),
 
+  // Off-device access. Setting MCP_PUBLIC_URL turns OAuth on and makes it
+  // MANDATORY — the MCP server refuses to boot without a passphrase hash,
+  // rather than quietly publishing an unauthenticated write API.
+  MCP_PUBLIC_URL: z.string().default(""),
+  MCP_AUTH_PASSPHRASE_HASH: z.string().default(""),
+
   // Ntfy health/alert notifications (empty topic = disabled)
   NTFY_URL: z.string().default("https://ntfy.sh"),
   NTFY_TOPIC: z.string().default(""),

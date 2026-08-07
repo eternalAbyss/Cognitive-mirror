@@ -1,9 +1,15 @@
-# cloudflared config template (Phase 0). Copy to ~/.cloudflared/config.yml and fill in.
-# Outbound-only; no inbound router ports (design §4 / D2).
+# cloudflared config template. Copy to ~/.cloudflared/config.yml and fill in the
+# two placeholders. Outbound-only: no inbound router port is opened, and your
+# home IP is never published.
+#
+# `cognitive-mirror tunnel` does this for you and additionally refuses to run
+# without an OAuth passphrase set. Use this file if you want to run cloudflared
+# yourself. See README.md in this directory.
 tunnel: <TUNNEL_UUID>
-credentials-file: /Users/<you>/.cloudflared/<TUNNEL_UUID>.json
+credentials-file: <path to your ~/.cloudflared/<TUNNEL_UUID>.json>
 
 ingress:
+  # Must match MCP_PUBLIC_URL in your .env.
   - hostname: mcp.example.com
-    service: http://127.0.0.1:4003 # MCP server (see MCP_PORT)
+    service: http://127.0.0.1:4003 # the MCP server (MCP_PORT)
   - service: http_status:404
