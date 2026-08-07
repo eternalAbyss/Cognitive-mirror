@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
+import type { GraphClient } from "@cm/graph-client";
 import {
-  EnrichPayloadSchema,
-  childLogger,
   type EnrichPayload,
+  EnrichPayloadSchema,
   type GraphOp,
   type NewNode,
+  childLogger,
 } from "@cm/shared";
-import type { GraphClient } from "@cm/graph-client";
 import { enrichArtifact } from "./anthropic.js";
-import { embed, chunkText } from "./embeddings.js";
+import { chunkText, embed } from "./embeddings.js";
 
 const log = childLogger("daemon:enrich");
 
@@ -42,10 +42,7 @@ export interface EnrichOutcome {
  * Anthropic enrichment → Source + Concept nodes + edges + embeddings, all
  * written through the single-writer Core Graph Service in one batch.
  */
-export async function enrichJob(
-  graph: GraphClient,
-  rawPayload: unknown,
-): Promise<EnrichOutcome> {
+export async function enrichJob(graph: GraphClient, rawPayload: unknown): Promise<EnrichOutcome> {
   const payload = EnrichPayloadSchema.parse(rawPayload);
   const result = await enrichArtifact(payload);
 
@@ -74,7 +71,11 @@ export async function enrichJob(
     // future upsert of this artifact at the wrong node.
     ops.push({ kind: "updateNode", id: sourceId, patch: sourceFields });
   } else {
-    const sourceNode: NewNode = { type: "Source", ...sourceFields, ...(externalId ? { externalId } : {}) };
+    const sourceNode: NewNode = {
+      type: "Source",
+      ...sourceFields,
+      ...(externalId ? { externalId } : {}),
+    };
     ops.push({ kind: "createNode", id: sourceId, node: sourceNode });
   }
 
@@ -134,10 +135,7 @@ export async function enrichJob(
     });
   }
 
-  const res = await graph.execute(
-    ops,
-    `enrich ${payload.source}: ${payload.title}`,
-  );
+  const res = await graph.execute(ops, `enrich ${payload.source}: ${payload.title}`);
   log.info(
     { sourceId, concepts: conceptIds.length, chunks: chunks.length, opLogId: res.opLogId },
     "enriched artifact",

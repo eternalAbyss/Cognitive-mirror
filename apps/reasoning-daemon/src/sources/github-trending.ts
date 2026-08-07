@@ -1,4 +1,4 @@
-import { loadConfig, childLogger } from "@cm/shared";
+import { childLogger, loadConfig } from "@cm/shared";
 import type { BriefCandidate } from "./types.js";
 
 const log = childLogger("daemon:source:github-trending");

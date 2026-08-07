@@ -1,5 +1,5 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "tsup";
@@ -195,9 +195,11 @@ function dropBundledUiDeps(uiOut: string, visSrc: string): void {
   console.log("→ dropping bundled UI node_modules (npm installs them instead)");
   rmSync(join(uiOut, "node_modules"), { recursive: true, force: true });
   const uiDeps = Object.keys(
-    (JSON.parse(readFileSync(join(visSrc, "package.json"), "utf8")) as {
-      dependencies?: Record<string, string>;
-    }).dependencies ?? {},
+    (
+      JSON.parse(readFileSync(join(visSrc, "package.json"), "utf8")) as {
+        dependencies?: Record<string, string>;
+      }
+    ).dependencies ?? {},
   );
   assertDepsDeclared(uiDeps, "visualiser");
 }
@@ -213,16 +215,17 @@ function dropBundledUiDeps(uiOut: string, visSrc: string): void {
 function assertDepsDeclared(needed: string[], label: string): void {
   const declared = new Set(
     Object.keys(
-      (JSON.parse(readFileSync(join(cliRoot, "package.json"), "utf8")) as {
-        dependencies?: Record<string, string>;
-      }).dependencies ?? {},
+      (
+        JSON.parse(readFileSync(join(cliRoot, "package.json"), "utf8")) as {
+          dependencies?: Record<string, string>;
+        }
+      ).dependencies ?? {},
     ),
   );
   const missing = needed.filter((d) => !declared.has(d));
   if (missing.length) {
     throw new Error(
-      `apps/cli/package.json does not declare ${label} dependencies: ${missing.join(", ")}.\n` +
-        "  Add them there — they are resolved from the installed package's node_modules.",
+      `apps/cli/package.json does not declare ${label} dependencies: ${missing.join(", ")}.\n  Add them there — they are resolved from the installed package's node_modules.`,
     );
   }
 }

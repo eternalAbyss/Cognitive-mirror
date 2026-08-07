@@ -1,14 +1,16 @@
 import { timingSafeEqual } from "node:crypto";
+import type { JobQueue } from "@cm/queue";
+import { type EnrichPayload, JOB_TYPE_ENRICH, loadConfig } from "@cm/shared";
 import { Hono } from "hono";
 import { z } from "zod";
-import { JOB_TYPE_ENRICH, loadConfig, type EnrichPayload } from "@cm/shared";
-import type { JobQueue } from "@cm/queue";
 import { contentHash } from "./hash.js";
 
 // Manual POST sources (Apple Shortcuts notes/journal, browser extension, Kindle).
 // GitHub/ArXiv/RSS/trending arrive via the daemon, not this webhook.
 const IngestBody = z.object({
-  kind: z.enum(["note", "journal", "youtube", "kindle_highlight", "github_repo", "generic"]).default("generic"),
+  kind: z
+    .enum(["note", "journal", "youtube", "kindle_highlight", "github_repo", "generic"])
+    .default("generic"),
   title: z.string(),
   text: z.string(),
   source: z.string().default("webhook"),

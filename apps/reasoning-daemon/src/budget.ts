@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { loadConfig, childLogger, type ModelPrice } from "@cm/shared";
+import { type ModelPrice, childLogger, loadConfig } from "@cm/shared";
 
 const log = childLogger("daemon:budget");
 
@@ -148,7 +148,13 @@ class Budget {
     );
   }
 
-  snapshot(): { day: string; spendUsd: number; dailyCap: number; monthSpendUsd: number; monthlyCap: number } {
+  snapshot(): {
+    day: string;
+    spendUsd: number;
+    dailyCap: number;
+    monthSpendUsd: number;
+    monthlyCap: number;
+  } {
     this.rollover();
     return {
       day: this.state.day,

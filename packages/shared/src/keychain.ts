@@ -10,11 +10,10 @@ import { execFileSync } from "node:child_process";
 export function getSecret(service: string): string | undefined {
   if (process.platform !== "darwin") return undefined;
   try {
-    const out = execFileSync(
-      "security",
-      ["find-generic-password", "-s", service, "-w"],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-    );
+    const out = execFileSync("security", ["find-generic-password", "-s", service, "-w"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
     const trimmed = out.trim();
     return trimmed.length > 0 ? trimmed : undefined;
   } catch {

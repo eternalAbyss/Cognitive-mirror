@@ -1,4 +1,4 @@
-import { GRAPH_CORE, getJson, embed } from "../../../../lib/services";
+import { GRAPH_CORE, embed, getJson } from "../../../../lib/services";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +43,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const body = (await req.json().catch(() => ({}))) as { title?: string; summary?: string };
   const title = (body.title ?? "").trim();
   const summary = body.summary ?? "";
-  const patch: Record<string, unknown> = { summary, edited: true, editedAt: new Date().toISOString() };
+  const patch: Record<string, unknown> = {
+    summary,
+    edited: true,
+    editedAt: new Date().toISOString(),
+  };
   if (title) patch.title = title;
 
   const ops: Op[] = [{ kind: "updateNode", id, patch }];

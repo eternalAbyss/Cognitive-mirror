@@ -62,7 +62,10 @@ async function main(argv: string[]): Promise<void> {
     }
 
     default:
-      return fail(`unknown command: ${command}`, "Run `cognitive-mirror help` to see what's available.");
+      return fail(
+        `unknown command: ${command}`,
+        "Run `cognitive-mirror help` to see what's available.",
+      );
   }
 }
 

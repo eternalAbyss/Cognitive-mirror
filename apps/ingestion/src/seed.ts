@@ -1,5 +1,5 @@
-import { loadConfig, childLogger, JOB_TYPE_ENRICH, type EnrichPayload } from "@cm/shared";
 import { JobQueue } from "@cm/queue";
+import { type EnrichPayload, JOB_TYPE_ENRICH, childLogger, loadConfig } from "@cm/shared";
 import { contentHash } from "./hash.js";
 
 /**

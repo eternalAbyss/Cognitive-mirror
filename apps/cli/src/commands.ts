@@ -1,9 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { createInterface } from "node:readline/promises";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes, scryptSync } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ENV_TEMPLATE } from "./env-template.js";
+import { createInterface } from "node:readline/promises";
 import {
   composeDown,
   composeFile,
@@ -15,10 +14,11 @@ import {
   requireDocker,
   waitFor,
 } from "./docker.js";
+import { ENV_TEMPLATE } from "./env-template.js";
 import { envPath, readEnv, resolveHome, updateEnv } from "./home.js";
-import { SERVICES, servicePath, startAll, printReady } from "./services.js";
-import { VISUALISER_PORT, startVisualiser } from "./visualiser.js";
+import { SERVICES, printReady, servicePath, startAll } from "./services.js";
 import { bold, cyan, dim, fail, gold, green, heading, ok, red, step, warn, yellow } from "./ui.js";
+import { VISUALISER_PORT, startVisualiser } from "./visualiser.js";
 
 const OLLAMA_DEFAULT = "http://127.0.0.1:11434";
 
@@ -48,9 +48,7 @@ export async function init(): Promise<void> {
 
   if (!hasKey && process.stdin.isTTY) {
     process.stderr.write(
-      `\n  An Anthropic API key powers enrichment, the daily brief, nightly\n` +
-        `  maintenance, and web research. Ingestion and the graph work without one.\n` +
-        `  ${dim("Get one at https://console.anthropic.com/settings/keys")}\n\n`,
+      `\n  An Anthropic API key powers enrichment, the daily brief, nightly\n  maintenance, and web research. Ingestion and the graph work without one.\n  ${dim("Get one at https://console.anthropic.com/settings/keys")}\n\n`,
     );
     const rl = createInterface({ input: process.stdin, output: process.stderr });
     const key = (await rl.question("  Anthropic API key (Enter to skip): ")).trim();
@@ -115,12 +113,20 @@ export async function doctor(): Promise<void> {
       token ? "token set" : anon ? "ANONYMOUS (local dev only)" : "no token — /ingest returns 401",
     );
     if (env.get("MCP_PUBLIC_URL") && !env.get("MCP_AUTH_PASSPHRASE_HASH")) {
-      check("mcp oauth", false, "MCP_PUBLIC_URL set without a passphrase — the server will refuse to start");
+      check(
+        "mcp oauth",
+        false,
+        "MCP_PUBLIC_URL set without a passphrase — the server will refuse to start",
+      );
     }
   }
 
   if (d.ok) {
-    check("falkordb", falkorReady(), falkorReady() ? "responding on :6379" : "not running — `cognitive-mirror up`");
+    check(
+      "falkordb",
+      falkorReady(),
+      falkorReady() ? "responding on :6379" : "not running — `cognitive-mirror up`",
+    );
     const url = envValue(home, "OLLAMA_URL", OLLAMA_DEFAULT);
     const oll = await ollamaReady(url);
     check("ollama", oll, oll ? `responding on ${url}` : "not running — `cognitive-mirror up`");
@@ -177,7 +183,10 @@ export function down(): void {
     // Port-based rather than pattern-based: `pkill -f` on a command line is
     // fragile and can match unrelated processes on a shared machine.
     const r = spawnSync("lsof", ["-ti", `tcp:${port}`, "-sTCP:LISTEN"], { encoding: "utf8" });
-    for (const pid of (r.stdout ?? "").split("\n").map((s) => s.trim()).filter(Boolean)) {
+    for (const pid of (r.stdout ?? "")
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean)) {
       try {
         process.kill(Number(pid), "SIGTERM");
       } catch {
@@ -212,7 +221,9 @@ export async function status(): Promise<void> {
 
   let ui = red("down");
   try {
-    const res = await fetch(`http://127.0.0.1:${VISUALISER_PORT}`, { signal: AbortSignal.timeout(1_500) });
+    const res = await fetch(`http://127.0.0.1:${VISUALISER_PORT}`, {
+      signal: AbortSignal.timeout(1_500),
+    });
     if (res.ok) ui = green("up");
   } catch {
     /* down */
@@ -224,7 +235,9 @@ export async function status(): Promise<void> {
     `\n  ${"falkordb".padEnd(10)} :6379  ${d.ok && falkorReady() ? green("up") : red("down")}  ${dim("graph + vectors")}\n`,
   );
   const oll = await ollamaReady(envValue(home, "OLLAMA_URL", OLLAMA_DEFAULT));
-  process.stderr.write(`  ${"ollama".padEnd(10)} :11434 ${oll ? green("up") : red("down")}  ${dim("embeddings")}\n\n`);
+  process.stderr.write(
+    `  ${"ollama".padEnd(10)} :11434 ${oll ? green("up") : red("down")}  ${dim("embeddings")}\n\n`,
+  );
 }
 
 // ── reset ────────────────────────────────────────────────────────────────────
@@ -236,9 +249,7 @@ export async function reset(force: boolean): Promise<void> {
       fail("reset is destructive", "Re-run with --force to confirm in a non-interactive shell.");
     }
     process.stderr.write(
-      `\n  ${bold("This deletes your entire knowledge graph")} — every node, edge,\n` +
-        `  queued job, and the budget breaker's recorded spend.\n\n` +
-        `  ${dim(home)}\n\n`,
+      `\n  ${bold("This deletes your entire knowledge graph")} — every node, edge,\n  queued job, and the budget breaker's recorded spend.\n\n  ${dim(home)}\n\n`,
     );
     const rl = createInterface({ input: process.stdin, output: process.stderr });
     const answer = (await rl.question(`  Type ${bold("reset")} to confirm: `)).trim();
@@ -280,8 +291,10 @@ export async function setPassphrase(): Promise<void> {
 
   heading("Set the MCP login passphrase");
   process.stderr.write(
-    `${dim("  This is what you type when authorising a remote Claude client.\n" +
-      "  Choose something long; it is the only thing between the internet and your graph.")}\n\n`,
+    `${dim(
+      "  This is what you type when authorising a remote Claude client.\n" +
+        "  Choose something long; it is the only thing between the internet and your graph.",
+    )}\n\n`,
   );
 
   const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -356,13 +369,20 @@ export function tunnel(): void {
   }
   const which = spawnSync("cloudflared", ["--version"], { stdio: "ignore" });
   if (which.error) {
-    fail("cloudflared is not installed", "macOS: brew install cloudflared\n  Other: https://github.com/cloudflare/cloudflared/releases");
+    fail(
+      "cloudflared is not installed",
+      "macOS: brew install cloudflared\n  Other: https://github.com/cloudflare/cloudflared/releases",
+    );
   }
   const host = new URL(url).hostname;
   step(`tunnelling ${host} → http://127.0.0.1:4003`);
-  spawnSync("cloudflared", ["tunnel", "run", "--url", "http://127.0.0.1:4003", "cognitive-mirror"], {
-    stdio: "inherit",
-  });
+  spawnSync(
+    "cloudflared",
+    ["tunnel", "run", "--url", "http://127.0.0.1:4003", "cognitive-mirror"],
+    {
+      stdio: "inherit",
+    },
+  );
 }
 
 // ── help ─────────────────────────────────────────────────────────────────────
@@ -401,9 +421,9 @@ export function help(): void {
 
 export function version(): void {
   try {
-    const pkg = JSON.parse(
-      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-    ) as { version: string };
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+      version: string;
+    };
     process.stdout.write(`${pkg.version}\n`);
   } catch {
     process.stdout.write("unknown\n");

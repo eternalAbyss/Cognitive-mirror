@@ -11,8 +11,7 @@ export function loginPage(opts: {
   request: string;
   error?: string;
 }): string {
-  const esc = (s: string) =>
-    s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
   return `<!doctype html>
 <html lang="en"><head>

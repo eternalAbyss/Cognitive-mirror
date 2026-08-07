@@ -4,16 +4,10 @@ import { query } from "./falkor.js";
 
 const UNDO_WINDOW_MS = 24 * 60 * 60 * 1000; // design §9: 24h undo window for automated destructive ops.
 
-const DESTRUCTIVE: ReadonlySet<GraphOp["kind"]> = new Set([
-  "softDeleteNode",
-  "tombstone",
-]);
+const DESTRUCTIVE: ReadonlySet<GraphOp["kind"]> = new Set(["softDeleteNode", "tombstone"]);
 
 /** Append one operation-log entry per execute() batch and return its id. */
-export async function appendOpLog(
-  ops: GraphOp[],
-  reason?: string,
-): Promise<string> {
+export async function appendOpLog(ops: GraphOp[], reason?: string): Promise<string> {
   const id = randomUUID();
   const ts = new Date().toISOString();
   const hasDestructive = ops.some((o) => DESTRUCTIVE.has(o.kind));
@@ -76,7 +70,10 @@ export async function undoOpLog(opLogId: string): Promise<UndoResult> {
   let reversed = 0;
   for (const op of ops) {
     if (op.kind === "softDeleteNode") {
-      await query(`MATCH (n:Node {id: $id}) SET n.archived = false, n.updatedAt = $ts`, { id: op.id, ts });
+      await query(`MATCH (n:Node {id: $id}) SET n.archived = false, n.updatedAt = $ts`, {
+        id: op.id,
+        ts,
+      });
       reversed++;
     } else if (op.kind === "tombstone") {
       await query(

@@ -11,21 +11,24 @@ export const contentType = "image/png";
 
 export default function AppleIcon() {
   return new ImageResponse(
-    (
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: CANVAS_DARK,
-        }}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={markDataUri({ ring: "#E4E7EE", gold: GOLD_DARK })} width={132} height={132} alt="" />
-      </div>
-    ),
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: CANVAS_DARK,
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={markDataUri({ ring: "#E4E7EE", gold: GOLD_DARK })}
+        width={132}
+        height={132}
+        alt=""
+      />
+    </div>,
     size,
   );
 }

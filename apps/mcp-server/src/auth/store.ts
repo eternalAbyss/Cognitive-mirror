@@ -49,13 +49,23 @@ export interface StoredToken {
   expiresAt: number;
 }
 
-interface ClientRow { client_id: string; data: string }
+interface ClientRow {
+  client_id: string;
+  data: string;
+}
 interface CodeRow {
-  client_id: string; redirect_uri: string; code_challenge: string;
-  scopes: string; resource: string | null; expires_at: number;
+  client_id: string;
+  redirect_uri: string;
+  code_challenge: string;
+  scopes: string;
+  resource: string | null;
+  expires_at: number;
 }
 interface TokenRow {
-  client_id: string; scopes: string; resource: string | null; expires_at: number;
+  client_id: string;
+  scopes: string;
+  resource: string | null;
+  expires_at: number;
 }
 
 export class AuthStore {
@@ -104,7 +114,9 @@ export class AuthStore {
 
   saveClient(client: OAuthClientInformationFull): void {
     this.db
-      .prepare("INSERT OR REPLACE INTO oauth_clients (client_id, data, created_at) VALUES (?, ?, ?)")
+      .prepare(
+        "INSERT OR REPLACE INTO oauth_clients (client_id, data, created_at) VALUES (?, ?, ?)",
+      )
       .run(client.client_id, JSON.stringify(client), Date.now());
   }
 
@@ -171,7 +183,14 @@ export class AuthStore {
         `INSERT OR REPLACE INTO oauth_tokens (token_hash, kind, client_id, scopes, resource, expires_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run(hashToken(token), kind, data.clientId, JSON.stringify(data.scopes), data.resource, data.expiresAt);
+      .run(
+        hashToken(token),
+        kind,
+        data.clientId,
+        JSON.stringify(data.scopes),
+        data.resource,
+        data.expiresAt,
+      );
   }
 
   getToken(token: string, kind: "access" | "refresh"): StoredToken | undefined {

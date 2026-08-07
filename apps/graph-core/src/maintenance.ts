@@ -24,10 +24,7 @@ export interface MergeCandidate {
   distance: number;
 }
 
-export async function mergeCandidates(
-  maxDistance: number,
-  perNode = 5,
-): Promise<MergeCandidate[]> {
+export async function mergeCandidates(maxDistance: number, perNode = 5): Promise<MergeCandidate[]> {
   const k = Math.max(2, Math.min(20, Math.floor(perNode) + 1));
   const max = Number.isFinite(maxDistance) ? maxDistance : 0.3;
   const now = new Date().toISOString();
@@ -108,7 +105,13 @@ export interface GraphSnapshot {
 
 export async function graphSnapshot(limit = 1200): Promise<GraphSnapshot> {
   const safe = Math.max(1, Math.min(5000, Math.floor(limit)));
-  const nodes = await query<{ id: string; title: string; type: string; domain: string; summary: string }>(
+  const nodes = await query<{
+    id: string;
+    title: string;
+    type: string;
+    domain: string;
+    summary: string;
+  }>(
     `MATCH (n:Node) WHERE coalesce(n.archived,false)=false
      RETURN n.id AS id, n.title AS title, n.type AS type,
             coalesce(n.domain,'') AS domain, coalesce(n.summary,'') AS summary

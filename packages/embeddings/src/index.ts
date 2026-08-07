@@ -1,4 +1,4 @@
-import { loadConfig, childLogger } from "@cm/shared";
+import { childLogger, loadConfig } from "@cm/shared";
 
 const log = childLogger("embeddings");
 

@@ -17,7 +17,10 @@ export function parseClippings(raw: string): Clip[] {
     if (nonEmpty.length < 2) continue;
     const book = nonEmpty[0]!.replace(/﻿/g, "");
     const metaIdx = lines.findIndex((l) => /^- /.test(l));
-    const text = lines.slice(metaIdx + 1).join(" ").trim();
+    const text = lines
+      .slice(metaIdx + 1)
+      .join(" ")
+      .trim();
     if (text) out.push({ book, text });
   }
   return out;

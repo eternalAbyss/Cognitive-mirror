@@ -1,7 +1,6 @@
 /** Terminal output helpers. Colour only when stdout is a TTY that wants it. */
 
-const useColor =
-  process.stdout.isTTY && !process.env.NO_COLOR && process.env.TERM !== "dumb";
+const useColor = process.stdout.isTTY && !process.env.NO_COLOR && process.env.TERM !== "dumb";
 
 const wrap = (code: string) => (s: string) => (useColor ? `[${code}m${s}[0m` : s);
 

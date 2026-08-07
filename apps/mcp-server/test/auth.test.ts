@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
-import { beforeEach, describe, expect, it } from "vitest";
 import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { AuthStore } from "../src/auth/store.js";
-import { CognitiveMirrorAuthProvider, MCP_SCOPE } from "../src/auth/provider.js";
+import { beforeEach, describe, expect, it } from "vitest";
 import { hashPassphrase, verifyPassphrase } from "../src/auth/passphrase.js";
+import { CognitiveMirrorAuthProvider, MCP_SCOPE } from "../src/auth/provider.js";
+import { AuthStore } from "../src/auth/store.js";
 
 /**
  * These cover the parts of OAuth this project owns. The SDK supplies the
@@ -73,11 +73,15 @@ describe("authorization code exchange", () => {
   it("rejects a replayed authorization code", async () => {
     const code = authorizeAndApprove();
     await provider.exchangeAuthorizationCode(client(), code);
-    await expect(provider.exchangeAuthorizationCode(client(), code)).rejects.toThrow(/invalid or expired/);
+    await expect(provider.exchangeAuthorizationCode(client(), code)).rejects.toThrow(
+      /invalid or expired/,
+    );
   });
 
   it("rejects an unknown code", async () => {
-    await expect(provider.exchangeAuthorizationCode(client(), "nope")).rejects.toThrow(/invalid or expired/);
+    await expect(provider.exchangeAuthorizationCode(client(), "nope")).rejects.toThrow(
+      /invalid or expired/,
+    );
   });
 
   it("rejects a code presented by a different client", async () => {
@@ -98,7 +102,9 @@ describe("authorization code exchange", () => {
   it("expires a code that is past its TTL", async () => {
     const code = authorizeAndApprove();
     store.purgeExpired(Date.now() + 120_000);
-    await expect(provider.exchangeAuthorizationCode(client(), code)).rejects.toThrow(/invalid or expired/);
+    await expect(provider.exchangeAuthorizationCode(client(), code)).rejects.toThrow(
+      /invalid or expired/,
+    );
   });
 });
 
@@ -124,7 +130,9 @@ describe("refresh token rotation", () => {
     // Replaying the spent token is treated as theft, not as a retry: the
     // still-valid tokens from the legitimate rotation are dropped too.
     await expect(provider.exchangeRefreshToken(client(), first.refresh_token!)).rejects.toThrow();
-    await expect(provider.verifyAccessToken(second.access_token)).rejects.toThrow(/invalid or expired/);
+    await expect(provider.verifyAccessToken(second.access_token)).rejects.toThrow(
+      /invalid or expired/,
+    );
   });
 
   it("allows narrowing scope but not widening it", async () => {
@@ -143,7 +151,9 @@ describe("access tokens", () => {
   it("rejects an expired token", async () => {
     const tokens = await provider.exchangeAuthorizationCode(client(), authorizeAndApprove());
     store.purgeExpired(Date.now() + 2 * 60 * 60_000);
-    await expect(provider.verifyAccessToken(tokens.access_token)).rejects.toThrow(/invalid or expired/);
+    await expect(provider.verifyAccessToken(tokens.access_token)).rejects.toThrow(
+      /invalid or expired/,
+    );
   });
 
   it("revokes a token on request, idempotently", async () => {
@@ -151,7 +161,9 @@ describe("access tokens", () => {
     await provider.revokeToken(client(), { token: tokens.access_token });
     await expect(provider.verifyAccessToken(tokens.access_token)).rejects.toThrow();
     // RFC 7009: revoking again must not error, or it becomes a token oracle.
-    await expect(provider.revokeToken(client(), { token: tokens.access_token })).resolves.toBeUndefined();
+    await expect(
+      provider.revokeToken(client(), { token: tokens.access_token }),
+    ).resolves.toBeUndefined();
   });
 
   it("never stores a token in the clear", async () => {

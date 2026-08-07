@@ -1,23 +1,23 @@
 import { randomUUID } from "node:crypto";
-import type { Response } from "express";
-import type {
-  AuthorizationParams,
-  OAuthServerProvider,
-} from "@modelcontextprotocol/sdk/server/auth/provider.js";
+import { childLogger } from "@cm/shared";
 import type { OAuthRegisteredClientsStore } from "@modelcontextprotocol/sdk/server/auth/clients.js";
-import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import {
   InvalidGrantError,
   InvalidScopeError,
   InvalidTokenError,
 } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import type {
+  AuthorizationParams,
+  OAuthServerProvider,
+} from "@modelcontextprotocol/sdk/server/auth/provider.js";
+import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import type {
   OAuthClientInformationFull,
   OAuthTokenRevocationRequest,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { childLogger } from "@cm/shared";
-import { AuthStore, newToken, safeEqual } from "./store.js";
+import type { Response } from "express";
+import { type AuthStore, newToken, safeEqual } from "./store.js";
 
 const log = childLogger("mcp-server:auth");
 
@@ -194,9 +194,7 @@ export class CognitiveMirrorAuthProvider implements OAuthServerProvider {
     this.store.revokeToken(refreshToken);
 
     // A refresh may narrow scope but never widen it.
-    const granted = scopes?.length
-      ? scopes.filter((s) => found.scopes.includes(s))
-      : found.scopes;
+    const granted = scopes?.length ? scopes.filter((s) => found.scopes.includes(s)) : found.scopes;
     if (scopes?.length && granted.length !== scopes.length) {
       throw new InvalidScopeError("requested scope exceeds the original grant");
     }
@@ -208,10 +206,16 @@ export class CognitiveMirrorAuthProvider implements OAuthServerProvider {
     const refreshToken = newToken();
     const now = Date.now();
     this.store.saveToken(accessToken, "access", {
-      clientId, scopes, resource, expiresAt: now + ACCESS_TTL_MS,
+      clientId,
+      scopes,
+      resource,
+      expiresAt: now + ACCESS_TTL_MS,
     });
     this.store.saveToken(refreshToken, "refresh", {
-      clientId, scopes, resource, expiresAt: now + REFRESH_TTL_MS,
+      clientId,
+      scopes,
+      resource,
+      expiresAt: now + REFRESH_TTL_MS,
     });
     return {
       access_token: accessToken,

@@ -1,5 +1,5 @@
-import { FalkorDB, type Graph } from "falkordb";
 import { loadConfig } from "@cm/shared";
+import { FalkorDB, type Graph } from "falkordb";
 
 /**
  * Sole point of FalkorDB access (design §3: one Core Graph Service process owns
@@ -44,8 +44,6 @@ export async function query<T = Record<string, unknown>>(
  * list param into the function. Values are plain finite numbers, so this is safe.
  */
 export function vecLiteral(vec: number[]): string {
-  const body = vec
-    .map((n) => (Number.isFinite(n) ? n : 0))
-    .join(",");
+  const body = vec.map((n) => (Number.isFinite(n) ? n : 0)).join(",");
   return `vecf32([${body}])`;
 }

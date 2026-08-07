@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import {
   EDGE_TYPES,
-  NODE_TYPES,
-  childLogger,
   type ExecuteResult,
   type GraphOp,
+  NODE_TYPES,
   type SubOpResult,
+  childLogger,
 } from "@cm/shared";
 import { query, vecLiteral } from "./falkor.js";
 import { appendOpLog } from "./oplog.js";
@@ -45,10 +45,7 @@ function cypherProperty(key: string): string {
  * half a batch. The batch is all-or-nothing as observed by callers. (Re-pointed
  * merge edges from a tombstone are the one best-effort case — see compensateTombstone.)
  */
-export async function executeOps(
-  ops: GraphOp[],
-  reason?: string,
-): Promise<ExecuteResult> {
+export async function executeOps(ops: GraphOp[], reason?: string): Promise<ExecuteResult> {
   const results: SubOpResult[] = [];
   const compensations: Compensation[] = [];
 
@@ -59,7 +56,10 @@ export async function executeOps(
       compensations.push(compensate);
     } catch (err) {
       const msg = String((err as Error)?.message ?? err);
-      log.warn({ op: op.kind, err: msg, applied: compensations.length }, "sub-op failed; rolling back batch");
+      log.warn(
+        { op: op.kind, err: msg, applied: compensations.length },
+        "sub-op failed; rolling back batch",
+      );
       await rollback(compensations);
       throw new Error(`execute batch aborted at ${op.kind}: ${msg}`);
     }
@@ -75,7 +75,10 @@ async function rollback(compensations: Compensation[]): Promise<void> {
     try {
       await undo();
     } catch (err) {
-      log.error({ err: String((err as Error)?.message ?? err) }, "compensation failed during rollback");
+      log.error(
+        { err: String((err as Error)?.message ?? err) },
+        "compensation failed during rollback",
+      );
     }
   }
 }
@@ -101,12 +104,18 @@ async function applyWithCompensation(
     case "createNode": {
       const result = await applyOne(op);
       const id = result.ids[0]!;
-      return { result, compensate: async () => void (await query(`MATCH (n:Node {id: $id}) DETACH DELETE n`, { id })) };
+      return {
+        result,
+        compensate: async () =>
+          void (await query(`MATCH (n:Node {id: $id}) DETACH DELETE n`, { id })),
+      };
     }
 
     case "updateNode": {
       const before = await readProps(op.id);
-      const keys = Object.keys(op.patch).filter((k) => op.patch[k] !== undefined && k !== "summary_embedding");
+      const keys = Object.keys(op.patch).filter(
+        (k) => op.patch[k] !== undefined && k !== "summary_embedding",
+      );
       keys.push("updatedAt"); // applyOne stamps this
       const restore: Record<string, unknown> = {};
       const removeKeys: string[] = [];
@@ -119,8 +128,13 @@ async function applyWithCompensation(
         result,
         compensate: async () => {
           if (!before) return; // node didn't exist; SET was a no-op
-          if (Object.keys(restore).length) await query(`MATCH (n:Node {id: $id}) SET n += $restore`, { id: op.id, restore });
-          if (removeKeys.length) await query(`MATCH (n:Node {id: $id}) REMOVE ${removeKeys.map(cypherProperty).join(", ")}`, { id: op.id });
+          if (Object.keys(restore).length)
+            await query(`MATCH (n:Node {id: $id}) SET n += $restore`, { id: op.id, restore });
+          if (removeKeys.length)
+            await query(
+              `MATCH (n:Node {id: $id}) REMOVE ${removeKeys.map(cypherProperty).join(", ")}`,
+              { id: op.id },
+            );
         },
       };
     }
@@ -161,7 +175,9 @@ async function applyWithCompensation(
     }
 
     case "upsertChunk": {
-      const existing = await query<{ id: string }>(`MATCH (c:Chunk {id: $id}) RETURN c.id AS id`, { id: op.chunk.id });
+      const existing = await query<{ id: string }>(`MATCH (c:Chunk {id: $id}) RETURN c.id AS id`, {
+        id: op.chunk.id,
+      });
       const existedBefore = existing.length > 0;
       const result = await applyOne(op);
       return {
@@ -169,14 +185,17 @@ async function applyWithCompensation(
         compensate: async () => {
           // Chunks are derived/regenerable; if it's new, drop it — if it pre-existed,
           // leave the (re-embedded) chunk in place rather than restore a stale vector.
-          if (!existedBefore) await query(`MATCH (c:Chunk {id: $id}) DETACH DELETE c`, { id: op.chunk.id });
+          if (!existedBefore)
+            await query(`MATCH (c:Chunk {id: $id}) DETACH DELETE c`, { id: op.chunk.id });
         },
       };
     }
 
     case "setSummaryEmbedding": {
       const before = await readProps(op.id);
-      const prev = Array.isArray(before?.summary_embedding) ? (before!.summary_embedding as number[]) : null;
+      const prev = Array.isArray(before?.summary_embedding)
+        ? (before!.summary_embedding as number[])
+        : null;
       const prevTs = (before?.updatedAt as string) ?? new Date().toISOString();
       const result = await applyOne(op);
       return {
@@ -184,9 +203,15 @@ async function applyWithCompensation(
         compensate: async () => {
           if (!before) return;
           if (prev) {
-            await query(`MATCH (n:Node {id: $id}) SET n.summary_embedding = ${vecLiteral(prev)}, n.updatedAt = $ts`, { id: op.id, ts: prevTs });
+            await query(
+              `MATCH (n:Node {id: $id}) SET n.summary_embedding = ${vecLiteral(prev)}, n.updatedAt = $ts`,
+              { id: op.id, ts: prevTs },
+            );
           } else {
-            await query(`MATCH (n:Node {id: $id}) REMOVE n.summary_embedding SET n.updatedAt = $ts`, { id: op.id, ts: prevTs });
+            await query(
+              `MATCH (n:Node {id: $id}) REMOVE n.summary_embedding SET n.updatedAt = $ts`,
+              { id: op.id, ts: prevTs },
+            );
           }
         },
       };
@@ -233,10 +258,7 @@ function flatten(obj: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
     if (v === undefined) continue;
-    out[k] =
-      v !== null && typeof v === "object" && !Array.isArray(v)
-        ? JSON.stringify(v)
-        : v;
+    out[k] = v !== null && typeof v === "object" && !Array.isArray(v) ? JSON.stringify(v) : v;
   }
   return out;
 }
@@ -262,18 +284,19 @@ async function applyOne(op: GraphOp): Promise<SubOpResult> {
     }
 
     case "updateNode": {
-      await query(
-        `MATCH (n:Node {id: $id}) SET n += $patch, n.updatedAt = $ts`,
-        { id: op.id, patch: flatten(op.patch), ts },
-      );
+      await query(`MATCH (n:Node {id: $id}) SET n += $patch, n.updatedAt = $ts`, {
+        id: op.id,
+        patch: flatten(op.patch),
+        ts,
+      });
       return { kind: op.kind, ids: [op.id] };
     }
 
     case "softDeleteNode": {
-      await query(
-        `MATCH (n:Node {id: $id}) SET n.archived = true, n.updatedAt = $ts`,
-        { id: op.id, ts },
-      );
+      await query(`MATCH (n:Node {id: $id}) SET n.archived = true, n.updatedAt = $ts`, {
+        id: op.id,
+        ts,
+      });
       return { kind: op.kind, ids: [op.id] };
     }
 

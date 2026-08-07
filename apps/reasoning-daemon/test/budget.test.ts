@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "@cm/shared";
+import { afterEach, describe, expect, it } from "vitest";
 import { Budget, BudgetExceededError } from "../src/budget.js";
 
 const dirs: string[] = [];

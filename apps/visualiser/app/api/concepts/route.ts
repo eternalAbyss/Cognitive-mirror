@@ -13,7 +13,11 @@ export async function GET() {
     { nodes: [] },
   );
   const concepts = nodes
-    .map((n) => ({ id: n.props.id ?? "", title: n.props.title ?? "", summary: n.props.summary ?? "" }))
+    .map((n) => ({
+      id: n.props.id ?? "",
+      title: n.props.title ?? "",
+      summary: n.props.summary ?? "",
+    }))
     .filter((c) => c.id)
     .sort((a, b) => a.title.localeCompare(b.title));
   return Response.json({ concepts });

@@ -87,9 +87,6 @@ export function startAll(home: string, extra: ServiceSpec[] = []): Supervisor {
 
 export function printReady(): void {
   process.stderr.write(
-    `\n  ${gold("●")} Cognitive-mirror is running\n\n` +
-      `    Visualiser   http://127.0.0.1:4004\n` +
-      SERVICES.map((s) => `    ${s.name.padEnd(12)} :${s.port}  ${dim(s.what)}`).join("\n") +
-      `\n\n  ${dim("Ctrl-C stops the services. The data plane keeps running — `cognitive-mirror down` stops that too.")}\n\n`,
+    `\n  ${gold("●")} Cognitive-mirror is running\n\n    Visualiser   http://127.0.0.1:4004\n${SERVICES.map((s) => `    ${s.name.padEnd(12)} :${s.port}  ${dim(s.what)}`).join("\n")}\n\n  ${dim("Ctrl-C stops the services. The data plane keeps running — `cognitive-mirror down` stops that too.")}\n\n`,
   );
 }

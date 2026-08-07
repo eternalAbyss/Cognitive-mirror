@@ -1,9 +1,9 @@
-import express from "express";
-import { loadConfig, childLogger } from "@cm/shared";
 import { createGraphClient } from "@cm/graph-client";
-import { buildMcpServer, newTransport } from "./server.js";
-import { subscribe } from "./events.js";
+import { childLogger, loadConfig } from "@cm/shared";
+import express from "express";
 import { setupAuth } from "./auth/index.js";
+import { subscribe } from "./events.js";
+import { buildMcpServer, newTransport } from "./server.js";
 
 const log = childLogger("mcp-server");
 
@@ -82,7 +82,10 @@ function main(): void {
   app.delete("/mcp", methodNotAllowed);
 
   const server = app.listen(cfg.MCP_PORT, "127.0.0.1", () => {
-    log.info({ port: cfg.MCP_PORT, auth: auth ? "oauth" : "none" }, "mcp-server listening (127.0.0.1)");
+    log.info(
+      { port: cfg.MCP_PORT, auth: auth ? "oauth" : "none" },
+      "mcp-server listening (127.0.0.1)",
+    );
   });
 
   const shutdown = () => {

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { dirname, join, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
 import { getSecret } from "./keychain.js";

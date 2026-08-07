@@ -4,8 +4,12 @@ A local-first **"second brain"** — a personal knowledge management system that
 activity, distils it into a self-managing knowledge graph, and lets Claude reason over it. All
 knowledge data lives on your machine.
 
-This document is the single deep reference. For the quick command list see the
-[README](README.md); for what's left to build see [TODO.md](TODO.md).
+This document is the single deep reference — the data model, both reasoning
+paths, every endpoint and tool, and the consolidation logic.
+
+For getting it running, see the [README](../README.md). For the trust model,
+[SECURITY.md](../SECURITY.md). For what changed and when,
+[CHANGELOG.md](../CHANGELOG.md).
 
 ---
 
@@ -59,7 +63,7 @@ Concretely, the system:
 Everything is one graph in FalkorDB. Every knowledge node carries the generic `:Node` label plus a
 specific type label (e.g. `:Node:Concept`), so a **single vector index** over
 `Node.summary_embedding` covers semantic search across all types. Defined in
-[packages/shared/src/schema.ts](packages/shared/src/schema.ts).
+[packages/shared/src/schema.ts](../packages/shared/src/schema.ts).
 
 ### Node types
 
@@ -239,7 +243,7 @@ Cognitive-mirror/
 │  │  └─ design/                     # provenance: original prototype + brief + screenshots
 │  │
 │  ├─ browser-extension/youtube/     # MV3 extension: capture the current YouTube video
-│  └─ tunnel/                        # Cloudflare tunnel config (stub — see TODO.md)
+│  └─ tunnel/                        # Cloudflare tunnel + OAuth setup guide
 │
 ├─ scripts/
 │  ├─ up.sh                          # start the whole stack with one command
@@ -250,7 +254,7 @@ Cognitive-mirror/
 ├─ pnpm-workspace.yaml               # workspace members
 ├─ tsconfig.base.json                # shared TS config
 ├─ .env.example                      # documented env template
-├─ README.md  ·  TODO.md  ·  documentation.md
+├─ README.md · CHANGELOG.md · SECURITY.md · CONTRIBUTING.md · docs/architecture.md
 ```
 
 ★ = a runnable service.
@@ -258,6 +262,10 @@ Cognitive-mirror/
 ---
 
 ## 6. Local setup — step by step
+
+> **The short version:** `npx cognitive-mirror init && npx cognitive-mirror up`.
+> The rest of this section describes running from a git checkout, which is what
+> you want when developing on the project itself.
 
 ### Prerequisites
 
@@ -281,7 +289,7 @@ pnpm install
 pnpm up
 ```
 
-`pnpm up` ([scripts/up.sh](scripts/up.sh)) does, in order:
+`pnpm up` ([scripts/up.sh](../scripts/up.sh)) does, in order:
 
 1. `docker compose up -d` — starts **FalkorDB** (port 6379, Browser UI 3001) and **Ollama**
    (11434), both bound to `127.0.0.1`.
@@ -301,10 +309,10 @@ pnpm seed          # injects a sample artifact → enrich job → Source + Conce
 ### Connecting a Claude client
 
 - **Claude Desktop** (local, no tunnel/OAuth) — see
-  [apps/mcp-server/CLAUDE_DESKTOP.md](apps/mcp-server/CLAUDE_DESKTOP.md). The Desktop app launches
+  [apps/mcp-server/CLAUDE_DESKTOP.md](../apps/mcp-server/CLAUDE_DESKTOP.md). The Desktop app launches
   `src/stdio.ts` as a subprocess and gets all 12 tools.
 - **claude.ai web / mobile** — requires the Cloudflare tunnel + MCP OAuth, which are **not yet
-  built** (see [TODO.md](TODO.md)).
+  built — see [apps/tunnel/README.md](../apps/tunnel/README.md).
 
 ---
 
@@ -314,8 +322,8 @@ pnpm seed          # injects a sample artifact → enrich job → Source + Conce
 
 | Script | What it does |
 |---|---|
-| [`scripts/up.sh`](scripts/up.sh) | **Start the entire stack, one command.** Brings up Docker (FalkorDB + Ollama), waits for both to be healthy, pulls the embed model on first run, then runs all backend services + the visualiser in the foreground. Ctrl-C stops the app services; Docker stays up. |
-| [`scripts/down.sh`](scripts/down.sh) | **Stop everything.** Kills whatever holds ports 4001–4005, then tears down the `concurrently` + `pnpm` supervisor tree (so it works even when the stack was detached), then `docker compose down`. **Data is preserved** (named volumes + `.data/` untouched). |
+| [`scripts/up.sh`](../scripts/up.sh) | **Start the entire stack, one command.** Brings up Docker (FalkorDB + Ollama), waits for both to be healthy, pulls the embed model on first run, then runs all backend services + the visualiser in the foreground. Ctrl-C stops the app services; Docker stays up. |
+| [`scripts/down.sh`](../scripts/down.sh) | **Stop everything.** Kills whatever holds ports 4001–4005, then tears down the `concurrently` + `pnpm` supervisor tree (so it works even when the stack was detached), then `docker compose down`. **Data is preserved** (named volumes + `.data/` untouched). |
 
 ### `package.json` scripts (run with `pnpm <name>`)
 
@@ -350,7 +358,7 @@ pnpm seed          # injects a sample artifact → enrich job → Source + Conce
 ## 8. Configuration (environment variables)
 
 All config is centralised and **zod-validated** in
-[packages/shared/src/config.ts](packages/shared/src/config.ts). Secrets fall back to the macOS
+[packages/shared/src/config.ts](../packages/shared/src/config.ts). Secrets fall back to the macOS
 Keychain when the env var is absent. File-state paths (`QUEUE_DB_PATH`, `BUDGET_STATE_PATH`) are
 anchored to the repo root so every service shares one file regardless of its working directory.
 
@@ -394,13 +402,13 @@ anchored to the repo root so every service shares one file regardless of its wor
 
 ### 9.1 Ingestion — capture everything, durably
 
-The ingestion service ([apps/ingestion](apps/ingestion)) is dumb on purpose: it **does no
+The ingestion service ([apps/ingestion](../apps/ingestion)) is dumb on purpose: it **does no
 reasoning**. It authenticates, hashes, and enqueues.
 
 - **Webhook** (`POST /ingest`) accepts manual sources: `note`, `journal`, `youtube`,
   `kindle_highlight`, `github_repo`, `generic`. A `Bearer`/`?token=` must match `INGEST_TOKEN` if set.
 - **GitHub repos** is a one-shot CLI import (`pnpm --filter @cm/ingestion repos`,
-  [import-repos.ts](apps/ingestion/src/import-repos.ts)): discovers every repo you own via the
+  [import-repos.ts](../apps/ingestion/src/import-repos.ts)): discovers every repo you own via the
   GitHub API and posts each repo's README + description + language + topics as a `github_repo`
   Source — so the daemon distils what each project is and finds cross-repo connections.
 - **GitHub poller** fetches new commits for `GITHUB_REPOS` every `GITHUB_POLL_INTERVAL_MS`.
@@ -409,7 +417,7 @@ reasoning**. It authenticates, hashes, and enqueues.
 
 **Idempotency:** every job carries a `content_hash` (of `kind + source + text`), and the queue's
 `content_hash` column is `UNIQUE`. Re-seeing the same artifact (e.g. the 5-minute GitHub poll) is a
-no-op, not a duplicate enrichment. ([packages/queue/src/index.ts](packages/queue/src/index.ts))
+no-op, not a duplicate enrichment. ([packages/queue/src/index.ts](../packages/queue/src/index.ts))
 
 **Durability & retries:** the queue is `node:sqlite` on disk, so captured work survives restarts
 and API/internet outages. Jobs are leased atomically (`BEGIN IMMEDIATE`), and `fail()` retries with
@@ -418,7 +426,7 @@ and API/internet outages. Jobs are leased atomically (`BEGIN IMMEDIATE`), and `f
 ### 9.2 Enrichment — artifact → graph
 
 The daemon's worker leases a job and, for an `enrich` job, runs
-[enrich.ts](apps/reasoning-daemon/src/enrich.ts):
+[enrich.ts](../apps/reasoning-daemon/src/enrich.ts):
 
 1. Calls Claude (**Haiku** tier) to distil the artifact into `{ source, concepts[], relations[] }`
    — strictly JSON, parsed defensively with a source-only fallback so the pipeline never stalls.
@@ -430,7 +438,7 @@ The daemon's worker leases a job and, for an `enrich` job, runs
 
 ### 9.3 Embeddings — two roles, one model
 
-[packages/embeddings](packages/embeddings) provides `embed()` and `chunkText()`, used on both the
+[packages/embeddings](../packages/embeddings) provides `embed()` and `chunkText()`, used on both the
 write side (daemon) and the query side (MCP). Two embedding **roles** (design §11), both from the
 same Ollama model so the vector index dimension is consistent:
 
@@ -442,7 +450,7 @@ same Ollama model so the vector index dimension is consistent:
 
 ### 9.4 Information retrieval
 
-Four ways to get knowledge out ([repo.ts](apps/graph-core/src/repo.ts)):
+Four ways to get knowledge out ([repo.ts](../apps/graph-core/src/repo.ts)):
 
 - **Semantic search** (`search_semantic`) — vector kNN over `Node.summary_embedding`, filters
   archived nodes, optional type filter. The "by meaning" path.
@@ -459,8 +467,8 @@ concepts as "hotter".
 ### 9.5 The maintenance engine — the graph self-manages
 
 Runs nightly (cron) and, debounced, after each ingestion. Implemented in
-[maintenance/index.ts](apps/reasoning-daemon/src/maintenance/index.ts), backed by read queries in
-[graph-core/maintenance.ts](apps/graph-core/src/maintenance.ts). See §12 for the full logic. In
+[maintenance/index.ts](../apps/reasoning-daemon/src/maintenance/index.ts), backed by read queries in
+[graph-core/maintenance.ts](../apps/graph-core/src/maintenance.ts). See §12 for the full logic. In
 brief, one pass does:
 
 1. **Merge / contradiction gate** (two stages) over near-duplicate concept pairs.
@@ -475,7 +483,7 @@ window**.
 **Edited-note approval gate (§9 human-in-the-loop):** the merge gate and archival are autonomous
 for ordinary nodes, but when a proposed **merge** or **archival-delete** would touch a node the user
 has hand-**edited** (`edited = true`, set by a UI edit), the engine does **not** act. Instead it
-records the fully-formed ops as a `:Approval` proposal ([approvals.ts](apps/graph-core/src/approvals.ts))
+records the fully-formed ops as a `:Approval` proposal ([approvals.ts](../apps/graph-core/src/approvals.ts))
 for the user to **Allow** or **Reject** from the visualiser. Approving replays the stored ops through
 `executeOps` (no further LLM call); rejecting cools the subject nodes down (`mergeCooldownUntil` /
 `cleanupRejectedUntil`) so the same action isn't re-proposed for 24h. Proposals are deduped by
@@ -483,7 +491,7 @@ action + subject set so a nightly run can't spam them.
 
 ### 9.6 Daily world brief
 
-[brief.ts](apps/reasoning-daemon/src/brief.ts): pull ArXiv + RSS + GitHub-trending, embed each
+[brief.ts](../apps/reasoning-daemon/src/brief.ts): pull ArXiv + RSS + GitHub-trending, embed each
 candidate, score it against your existing `Concept`/`Interest` vectors (with a recency boost for
 concepts read in the last week), discard the irrelevant (distance > `BRIEF_THRESHOLD`), and have
 Claude (**Sonnet**) synthesise up to `BRIEF_MAX_OBSERVATIONS` non-obvious observations into
@@ -491,14 +499,14 @@ Claude (**Sonnet**) synthesise up to `BRIEF_MAX_OBSERVATIONS` non-obvious observ
 
 ### 9.7 Live web research
 
-[research.ts](apps/reasoning-daemon/src/research.ts) + the `research_topic` MCP tool: Claude
+[research.ts](../apps/reasoning-daemon/src/research.ts) + the `research_topic` MCP tool: Claude
 (**Sonnet**) researches a topic with the Anthropic **web search** server tool, and the cited
 briefing flows through the **same enrichment pipeline** as any other source — producing a `Source`
 node + extracted `Concept`s + embeddings, with citation URLs preserved.
 
 ### 9.8 Budget breaker (persistent)
 
-[budget.ts](apps/reasoning-daemon/src/budget.ts): a circuit breaker checked before every
+[budget.ts](../apps/reasoning-daemon/src/budget.ts): a circuit breaker checked before every
 non-essential API call. Spend is **write-through persisted** to `BUDGET_STATE_PATH`, so the breaker
 survives daemon restarts (it can't be reset just by bouncing the process). Enforces both a **daily**
 and a **monthly** cap with UTC rollovers; when tripped, the worker pauses enrichment and (if
@@ -507,7 +515,7 @@ still tracked) so the breaker simply won't trip until prices are configured.
 
 ### 9.9 Atomic writes, op log, undo
 
-[execute.ts](apps/graph-core/src/execute.ts): FalkorDB only guarantees atomicity **within** a single
+[execute.ts](../apps/graph-core/src/execute.ts): FalkorDB only guarantees atomicity **within** a single
 Cypher query, and some ops (tombstone/merge) are inherently multi-statement — so a batch can't be one
 transaction. Instead each sub-op is applied with a **compensating inverse**; if any sub-op throws,
 the inverses collected so far run in reverse to undo the partial batch, and the error is rethrown so
@@ -515,7 +523,7 @@ callers fail fast. The batch is **all-or-nothing as observed by callers**. (The 
 edges re-pointed onto a survivor during a merge are not un-pointed on rollback — matching the 24h
 undo's documented limitation.)
 
-The **op log** ([oplog.ts](apps/graph-core/src/oplog.ts)) records one entry per batch; destructive
+The **op log** ([oplog.ts](../apps/graph-core/src/oplog.ts)) records one entry per batch; destructive
 batches (softDelete/tombstone) get a 24-hour `undoUntil`. `undoOpLog` reverses them within the
 window.
 
@@ -529,7 +537,7 @@ them.
 
 ### 9.11 Visualiser
 
-[apps/visualiser](apps/visualiser): a Next.js app whose `app/api/*` routes proxy the localhost-only
+[apps/visualiser](../apps/visualiser): a Next.js app whose `app/api/*` routes proxy the localhost-only
 services (browser stays same-origin; graph-core/daemon/mcp are never exposed). It renders a Three.js
 knowledge sphere from `/api/graph`, animates live reasoning traces from the MCP SSE stream via
 `/api/events`, and drives the Daily Brief / vitals / open loops / op log / status panels from the
@@ -560,7 +568,7 @@ is what makes the maintenance engine ask permission before merging or deleting i
 
 All services bind to `127.0.0.1` only.
 
-### graph-core — Core Graph Service (`:4001`) · [api.ts](apps/graph-core/src/api.ts)
+### graph-core — Core Graph Service (`:4001`) · [api.ts](../apps/graph-core/src/api.ts)
 
 | Method & path | Purpose |
 |---|---|
@@ -583,7 +591,7 @@ All services bind to `127.0.0.1` only.
 | `POST /approvals` | Record a proposal (used by the daemon). Body: `{ action, title, detail, ops, subjectIds }`. |
 | `POST /approvals/:id/resolve` | Allow or reject a proposal. Body: `{ decision: "approve" \| "reject" }`. |
 
-### ingestion (`:4002`) · [server.ts](apps/ingestion/src/server.ts)
+### ingestion (`:4002`) · [server.ts](../apps/ingestion/src/server.ts)
 
 | Method & path | Purpose |
 |---|---|
@@ -591,7 +599,7 @@ All services bind to `127.0.0.1` only.
 | `GET /stats` | Queue stats (`queued/leased/done/failed`). |
 | `POST /ingest` | Enqueue a captured artifact. Auth: `Bearer INGEST_TOKEN` if set. |
 
-### reasoning-daemon (`:4005`) · [status-server.ts](apps/reasoning-daemon/src/status-server.ts)
+### reasoning-daemon (`:4005`) · [status-server.ts](../apps/reasoning-daemon/src/status-server.ts)
 
 | Method & path | Purpose |
 |---|---|
@@ -599,7 +607,7 @@ All services bind to `127.0.0.1` only.
 | `GET /status` | `{ budget: snapshot, queue: stats }`. |
 | `POST /research` | Run live web research → graph. Body: `{ topic }`. |
 
-### mcp-server (`:4003`) · [index.ts](apps/mcp-server/src/index.ts)
+### mcp-server (`:4003`) · [index.ts](../apps/mcp-server/src/index.ts)
 
 | Method & path | Purpose |
 |---|---|
@@ -608,7 +616,7 @@ All services bind to `127.0.0.1` only.
 | `POST /mcp` | MCP over Streamable HTTP (stateless: fresh server+transport per request). |
 | `GET`/`DELETE /mcp` | `405` — not allowed. |
 
-Plus a **stdio** transport ([stdio.ts](apps/mcp-server/src/stdio.ts)) for Claude Desktop.
+Plus a **stdio** transport ([stdio.ts](../apps/mcp-server/src/stdio.ts)) for Claude Desktop.
 
 ### visualiser (`:4004`) — same-origin proxies under `app/api/`
 
@@ -622,7 +630,7 @@ Ollama, then writes `updateNode` + `setSummaryEmbedding`, marking the node `edit
 
 ## 11. MCP functions (tools)
 
-12 tools, registered in [tools.ts](apps/mcp-server/src/tools.ts). Read tools emit live events;
+12 tools, registered in [tools.ts](../apps/mcp-server/src/tools.ts). Read tools emit live events;
 write tools go through `graph.execute` (the single writer).
 
 | Tool | Kind | Inputs | What it does |
@@ -640,7 +648,7 @@ write tools go through `graph.execute` (the single writer).
 | `checkpoint_conversation` | write | `conversationId?, delta, openQuestions?, conclusions?` | Open/append a `Conversation` at a semantic breakpoint. |
 | `close_conversation` | write | `conversationId, status` | Finalise a conversation (`closed`/`parked`) + compute its summary embedding. |
 
-The server ships **standing instructions** ([server.ts](apps/mcp-server/src/server.ts)) telling
+The server ships **standing instructions** ([server.ts](../apps/mcp-server/src/server.ts)) telling
 Claude to ground answers in the graph (cite node titles) and to checkpoint conversations.
 
 ---
@@ -652,8 +660,8 @@ Claude to ground answers in the graph (cite node titles) and to checkpoint conve
 The design principle: **vector similarity nominates, the LLM decides.** A vector index is good at
 "these two summaries are close" but bad at "are these the *same idea*, *opposed*, or merely
 *related*?" So merging is two stages
-([graph-core/maintenance.ts](apps/graph-core/src/maintenance.ts) +
-[maintenance/index.ts](apps/reasoning-daemon/src/maintenance/index.ts)):
+([graph-core/maintenance.ts](../apps/graph-core/src/maintenance.ts) +
+[maintenance/index.ts](../apps/reasoning-daemon/src/maintenance/index.ts)):
 
 **Stage 1 — nominate (cheap, vector).** `mergeCandidates(maxDistance)` is a vector self-join over
 the `Concept` summary embeddings: for each active concept, its nearest concept neighbours within

@@ -1,13 +1,13 @@
 import { join } from "node:path";
+import { childLogger, loadConfig, resolveHomeDir } from "@cm/shared";
+import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
+import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import express, { type RequestHandler } from "express";
 import rateLimit from "express-rate-limit";
-import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
-import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
-import { childLogger, loadConfig, resolveHomeDir } from "@cm/shared";
-import { AuthStore } from "./store.js";
 import { loginPage } from "./login.js";
 import { verifyPassphrase } from "./passphrase.js";
 import { CognitiveMirrorAuthProvider, MCP_SCOPE } from "./provider.js";
+import { AuthStore } from "./store.js";
 
 const log = childLogger("mcp-server:auth");
 
@@ -46,8 +46,7 @@ export function setupAuth(): AuthSetup | null {
   }
   if (issuer.protocol !== "https:") {
     throw new Error(
-      `MCP_PUBLIC_URL must use https (got ${issuer.protocol}//). ` +
-        "OAuth tokens would otherwise cross the network in the clear.",
+      `MCP_PUBLIC_URL must use https (got ${issuer.protocol}//). OAuth tokens would otherwise cross the network in the clear.`,
     );
   }
   if (!cfg.MCP_AUTH_PASSPHRASE_HASH.trim()) {
@@ -74,7 +73,10 @@ export function setupAuth(): AuthSetup | null {
     limit: 10,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { error: "too_many_requests", error_description: "Too many attempts. Try again later." },
+    message: {
+      error: "too_many_requests",
+      error_description: "Too many attempts. Try again later.",
+    },
   });
 
   router.get("/authorize/consent", (req, res) => {
@@ -82,11 +84,15 @@ export function setupAuth(): AuthSetup | null {
       const id = String(req.query.request ?? "");
       const pending = provider.getPending(id);
       if (!pending) {
-        res.status(400).send(errorPage("This authorisation request expired. Start again from your client."));
+        res
+          .status(400)
+          .send(errorPage("This authorisation request expired. Start again from your client."));
         return;
       }
       const client = await provider.clientsStore.getClient(pending.clientId);
-      res.type("html").send(loginPage({ clientName: nameOf(client, pending.clientId), request: id }));
+      res
+        .type("html")
+        .send(loginPage({ clientName: nameOf(client, pending.clientId), request: id }));
     })();
   });
 
@@ -100,7 +106,9 @@ export function setupAuth(): AuthSetup | null {
         const id = String(body.request ?? "");
         const pending = provider.getPending(id);
         if (!pending) {
-          res.status(400).send(errorPage("This authorisation request expired. Start again from your client."));
+          res
+            .status(400)
+            .send(errorPage("This authorisation request expired. Start again from your client."));
           return;
         }
         const client = await provider.clientsStore.getClient(pending.clientId);
@@ -121,7 +129,9 @@ export function setupAuth(): AuthSetup | null {
 
         const approved = provider.approve(id);
         if (!approved) {
-          res.status(400).send(errorPage("This authorisation request expired. Start again from your client."));
+          res
+            .status(400)
+            .send(errorPage("This authorisation request expired. Start again from your client."));
           return;
         }
 
@@ -150,7 +160,10 @@ export function setupAuth(): AuthSetup | null {
     resourceMetadataUrl: new URL("/.well-known/oauth-protected-resource", issuer).href,
   });
 
-  log.info({ issuer: issuer.href, clients: store.countClients() }, "OAuth enabled — /mcp requires a bearer token");
+  log.info(
+    { issuer: issuer.href, clients: store.countClients() },
+    "OAuth enabled — /mcp requires a bearer token",
+  );
   return { router, guard, store };
 }
 

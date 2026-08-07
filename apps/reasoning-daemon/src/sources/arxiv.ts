@@ -1,5 +1,5 @@
+import { childLogger, loadConfig } from "@cm/shared";
 import Parser from "rss-parser";
-import { loadConfig, childLogger } from "@cm/shared";
 import type { BriefCandidate } from "./types.js";
 
 const log = childLogger("daemon:source:arxiv");

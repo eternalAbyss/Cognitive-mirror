@@ -51,7 +51,10 @@ function compose(args: string[], opts: { quiet?: boolean } = {}): number {
 export function composeUp(): void {
   step("starting the data plane (FalkorDB + Ollama)…");
   if (compose(["up", "-d"], { quiet: true }) !== 0) {
-    fail("docker compose failed to start the data plane", "Run `docker compose -f " + composeFile() + " up` to see why.");
+    fail(
+      "docker compose failed to start the data plane",
+      `Run \`docker compose -f ${composeFile()} up\` to see why.`,
+    );
   }
 }
 
@@ -81,7 +84,10 @@ export async function waitFor(
 }
 
 export function falkorReady(): boolean {
-  return spawnSync("docker", ["exec", "cm-falkordb", "redis-cli", "PING"], { stdio: "ignore" }).status === 0;
+  return (
+    spawnSync("docker", ["exec", "cm-falkordb", "redis-cli", "PING"], { stdio: "ignore" })
+      .status === 0
+  );
 }
 
 export async function ollamaReady(url: string): Promise<boolean> {
@@ -100,9 +106,12 @@ export function ensureEmbedModel(model: string): Promise<void> {
 
   step(`pulling the embedding model '${model}' (first run only, ~270 MB)…`);
   return new Promise((resolvePromise) => {
-    const child = spawn("docker", ["exec", "cm-ollama", "ollama", "pull", model], { stdio: "inherit" });
+    const child = spawn("docker", ["exec", "cm-ollama", "ollama", "pull", model], {
+      stdio: "inherit",
+    });
     child.on("exit", (code) => {
-      if (code !== 0) warn(`could not pull '${model}' — embeddings will fail until it is available`);
+      if (code !== 0)
+        warn(`could not pull '${model}' — embeddings will fail until it is available`);
       resolvePromise();
     });
   });

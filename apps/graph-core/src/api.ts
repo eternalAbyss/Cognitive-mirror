@@ -1,18 +1,25 @@
+import { ExecuteRequestSchema, GraphOpSchema, NodeTypeSchema } from "@cm/shared";
 import { Hono } from "hono";
 import { z } from "zod";
-import { ExecuteRequestSchema, GraphOpSchema, NodeTypeSchema } from "@cm/shared";
-import { getNode, findByExternalId, searchSemantic, searchChunks, searchText, traverse } from "./repo.js";
-import { executeOps } from "./execute.js";
-import { recentOpLog, undoOpLog } from "./oplog.js";
 import { createApproval, listApprovals, resolveApproval } from "./approvals.js";
+import { executeOps } from "./execute.js";
 import {
-  mergeCandidates,
   countsByType,
-  listByType,
   crossDomainEdges,
-  resurfaceQueue,
   graphSnapshot,
+  listByType,
+  mergeCandidates,
+  resurfaceQueue,
 } from "./maintenance.js";
+import { recentOpLog, undoOpLog } from "./oplog.js";
+import {
+  findByExternalId,
+  getNode,
+  searchChunks,
+  searchSemantic,
+  searchText,
+  traverse,
+} from "./repo.js";
 
 /**
  * Query-string numbers, with junk falling back to the default.
@@ -142,7 +149,9 @@ export function buildApi(): Hono {
   });
 
   app.post("/approvals/:id/resolve", async (c) => {
-    const { decision } = z.object({ decision: z.enum(["approve", "reject"]) }).parse(await c.req.json());
+    const { decision } = z
+      .object({ decision: z.enum(["approve", "reject"]) })
+      .parse(await c.req.json());
     return c.json(await resolveApproval(c.req.param("id"), decision));
   });
 

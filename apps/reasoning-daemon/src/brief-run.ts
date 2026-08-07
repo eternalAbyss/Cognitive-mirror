@@ -1,5 +1,5 @@
-import { childLogger } from "@cm/shared";
 import { createGraphClient } from "@cm/graph-client";
+import { childLogger } from "@cm/shared";
 import { runDailyBrief } from "./brief.js";
 
 /** On-demand daily brief for testing: `pnpm --filter @cm/reasoning-daemon brief`. */

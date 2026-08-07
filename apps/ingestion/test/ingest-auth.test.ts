@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resetConfigCache } from "@cm/shared";
 import { JobQueue } from "@cm/queue";
+import { resetConfigCache } from "@cm/shared";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildIngestServer } from "../src/server.js";
 
 /**

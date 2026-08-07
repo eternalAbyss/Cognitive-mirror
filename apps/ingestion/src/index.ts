@@ -1,6 +1,6 @@
-import { serve } from "@hono/node-server";
-import { loadConfig, childLogger } from "@cm/shared";
 import { JobQueue } from "@cm/queue";
+import { childLogger, loadConfig } from "@cm/shared";
+import { serve } from "@hono/node-server";
 import { startPolling } from "./github-poller.js";
 import { buildIngestServer } from "./server.js";
 

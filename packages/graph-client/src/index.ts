@@ -1,9 +1,9 @@
 import {
-  loadConfig,
   type ExecuteRequest,
   type ExecuteResult,
   type GraphOp,
   type NodeType,
+  loadConfig,
 } from "@cm/shared";
 
 /**
@@ -146,7 +146,10 @@ export class GraphClient {
     return this.req("/approvals");
   }
 
-  resolveApproval(id: string, decision: "approve" | "reject"): Promise<{ ok: boolean; reason?: string; opLogId?: string }> {
+  resolveApproval(
+    id: string,
+    decision: "approve" | "reject",
+  ): Promise<{ ok: boolean; reason?: string; opLogId?: string }> {
     return this.req(`/approvals/${encodeURIComponent(id)}/resolve`, {
       method: "POST",
       body: JSON.stringify({ decision }),

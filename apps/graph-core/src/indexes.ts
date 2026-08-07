@@ -1,4 +1,4 @@
-import { loadConfig, childLogger } from "@cm/shared";
+import { childLogger, loadConfig } from "@cm/shared";
 import { query } from "./falkor.js";
 
 const log = childLogger("graph-core:indexes");

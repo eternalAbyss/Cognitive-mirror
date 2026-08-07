@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { GraphOp } from "@cm/shared";
-import { query } from "./falkor.js";
 import { executeOps } from "./execute.js";
+import { query } from "./falkor.js";
 
 /**
  * Human-in-the-loop approvals for the autonomous cleanup (design §9). When the
@@ -37,7 +37,9 @@ export interface Approval {
 
 /** Create a pending approval, deduped: if an identical pending proposal already
  * exists (same action + same subject set), this is a no-op. */
-export async function createApproval(input: ApprovalInput): Promise<{ id: string; created: boolean }> {
+export async function createApproval(
+  input: ApprovalInput,
+): Promise<{ id: string; created: boolean }> {
   const subjectKey = [...input.subjectIds].sort().join(",");
   const existing = await query<{ id: string }>(
     `MATCH (a:Approval {status: 'pending', action: $action, subjectKey: $subjectKey})
@@ -91,7 +93,10 @@ export interface ResolveResult {
  * single writer; `reject` marks it rejected and cools down the subject nodes so
  * the engine doesn't immediately re-propose the same action.
  */
-export async function resolveApproval(id: string, decision: "approve" | "reject"): Promise<ResolveResult> {
+export async function resolveApproval(
+  id: string,
+  decision: "approve" | "reject",
+): Promise<ResolveResult> {
   const rows = await query<{ props: Record<string, string> }>(
     `MATCH (a:Approval {id: $id}) RETURN properties(a) AS props`,
     { id },
@@ -125,10 +130,10 @@ export async function resolveApproval(id: string, decision: "approve" | "reject"
   // approval itself was already marked rejected by the claim above.
   const until = new Date(Date.now() + REJECT_COOLDOWN_MS).toISOString();
   const prop = action === "merge" ? "mergeCooldownUntil" : "cleanupRejectedUntil";
-  await query(
-    `UNWIND $ids AS sid MATCH (n:Node {id: sid}) SET n.\`${prop}\` = $until`,
-    { ids: subjectIds, until },
-  );
+  await query(`UNWIND $ids AS sid MATCH (n:Node {id: sid}) SET n.\`${prop}\` = $until`, {
+    ids: subjectIds,
+    until,
+  });
   return { ok: true, decision };
 }
 

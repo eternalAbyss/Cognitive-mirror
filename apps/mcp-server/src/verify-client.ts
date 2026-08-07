@@ -1,6 +1,6 @@
+import { loadConfig } from "@cm/shared";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { loadConfig } from "@cm/shared";
 
 /**
  * Interactive-path smoke test: connects a real MCP client to the running server,
@@ -21,9 +21,7 @@ const search = await client.callTool({
 });
 
 const text =
-  Array.isArray(search.content) && search.content[0]?.type === "text"
-    ? search.content[0].text
-    : "";
+  Array.isArray(search.content) && search.content[0]?.type === "text" ? search.content[0].text : "";
 const hits = (() => {
   try {
     return JSON.parse(text) as unknown[];
@@ -38,8 +36,7 @@ console.log(
       toolCount: tools.tools.length,
       toolNames: tools.tools.map((t) => t.name),
       searchHits: hits.length,
-      firstHitTitle:
-        (hits[0] as { props?: { title?: string } } | undefined)?.props?.title ?? null,
+      firstHitTitle: (hits[0] as { props?: { title?: string } } | undefined)?.props?.title ?? null,
     },
     null,
     2,

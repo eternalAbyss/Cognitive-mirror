@@ -46,7 +46,13 @@ export function readEnv(path: string): Map<string, string> {
     if (!t || t.startsWith("#")) continue;
     const eq = t.indexOf("=");
     if (eq === -1) continue;
-    out.set(t.slice(0, eq).trim(), t.slice(eq + 1).trim().replace(/^["']|["']$/g, ""));
+    out.set(
+      t.slice(0, eq).trim(),
+      t
+        .slice(eq + 1)
+        .trim()
+        .replace(/^["']|["']$/g, ""),
+    );
   }
   return out;
 }

@@ -1,6 +1,6 @@
+import type { GraphClient } from "@cm/graph-client";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { GraphClient } from "@cm/graph-client";
 import { registerTools } from "./tools.js";
 
 /**

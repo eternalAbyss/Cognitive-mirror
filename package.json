@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Second Brain PKM — local-first self-managing knowledge graph with interactive (MCP) and autonomous (API daemon) reasoning paths.",
+  "description": "A local-first second brain: ingests your activity into a self-managing knowledge graph that Claude can reason over.",
   "engines": {
     "node": ">=22"
   },
@@ -13,21 +13,28 @@
     "down": "bash scripts/down.sh",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
-    "setup:ollama": "docker exec cm-ollama ollama pull ${EMBED_MODEL:-nomic-embed-text}",
+    "cli": "pnpm --filter cognitive-mirror dev",
     "dev": "concurrently -n graph,ingest,daemon,mcp -c blue,green,magenta,cyan \"pnpm --filter @cm/graph-core dev\" \"pnpm --filter @cm/ingestion dev\" \"pnpm --filter @cm/reasoning-daemon dev\" \"pnpm --filter @cm/mcp-server dev\"",
     "dev:all": "concurrently -n graph,ingest,daemon,mcp,vis -c blue,green,magenta,cyan,yellow \"pnpm --filter @cm/graph-core dev\" \"pnpm --filter @cm/ingestion dev\" \"pnpm --filter @cm/reasoning-daemon dev\" \"pnpm --filter @cm/mcp-server dev\" \"pnpm --filter @cm/visualiser dev\"",
     "seed": "pnpm --filter @cm/ingestion seed",
-    "reset": "pnpm --filter @cm/graph-core reset && rm -f .data/queue.sqlite .data/queue.sqlite-shm .data/queue.sqlite-wal .data/budget.json && echo 'fresh start — graph + queue + budget cleared'",
-    "build": "pnpm -r build",
+    "reset": "pnpm --filter @cm/graph-core reset && rm -f .data/queue.sqlite .data/queue.sqlite-shm .data/queue.sqlite-wal .data/budget.json && echo 'fresh start \u2014 graph + queue + budget cleared'",
+    "build": "pnpm --filter cognitive-mirror build",
+    "lint": "biome check .",
+    "format": "biome check --write .",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage"
   },
   "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
     "@types/node": "^22.20.0",
+    "@vitest/coverage-v8": "^3.2.6",
     "concurrently": "^9.2.3",
     "tsup": "^8.5.1",
     "tsx": "^4.22.4",
     "typescript": "^5.9.3",
     "vitest": "^3.2.6"
-  }
+  },
+  "license": "MIT"
 }

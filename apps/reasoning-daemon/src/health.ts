@@ -1,4 +1,4 @@
-import { loadConfig, childLogger, notify } from "@cm/shared";
+import { childLogger, loadConfig, notify } from "@cm/shared";
 
 const log = childLogger("daemon:health");
 

@@ -12,7 +12,8 @@ export async function POST(req: Request) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ topic }),
     });
-    if (!res.ok) return Response.json({ ok: false, error: `daemon research failed (${res.status})` });
+    if (!res.ok)
+      return Response.json({ ok: false, error: `daemon research failed (${res.status})` });
     return Response.json(await res.json());
   } catch {
     return Response.json({ ok: false, error: "reasoning daemon unreachable" });

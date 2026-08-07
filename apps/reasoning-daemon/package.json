@@ -9,8 +9,7 @@
     "brief": "tsx src/brief-run.ts",
     "maintain": "tsx src/maintain-run.ts",
     "build": "tsup src/index.ts --format esm --clean",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.0",

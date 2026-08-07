@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { ExecuteRequestSchema, GraphOpSchema, PROTECTED_NODE_PROPS } from "../src/ops.js";
 
 describe("GraphOp schema", () => {
@@ -26,7 +26,11 @@ describe("GraphOp schema", () => {
   it("validates an execute request with mixed ops", () => {
     const req = ExecuteRequestSchema.parse({
       ops: [
-        { kind: "createNode", node: { type: "Source", title: "s" }, id: "11111111-1111-1111-1111-111111111111" },
+        {
+          kind: "createNode",
+          node: { type: "Source", title: "s" },
+          id: "11111111-1111-1111-1111-111111111111",
+        },
         {
           kind: "createEdge",
           from: "11111111-1111-1111-1111-111111111111",

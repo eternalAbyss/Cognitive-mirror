@@ -1,6 +1,6 @@
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createGraphClient } from "@cm/graph-client";
 import { childLogger } from "@cm/shared";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { buildMcpServer } from "./server.js";
 
 /**

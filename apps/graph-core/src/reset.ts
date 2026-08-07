@@ -1,5 +1,5 @@
 import { childLogger } from "@cm/shared";
-import { getGraph, query, closeGraph } from "./falkor.js";
+import { closeGraph, getGraph, query } from "./falkor.js";
 
 /**
  * Wipe ALL graph data (nodes, edges, chunks, op-log) for a fresh start.

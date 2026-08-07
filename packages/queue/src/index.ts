@@ -1,6 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
 /**
@@ -198,9 +198,9 @@ export class JobQueue {
   /** Record a failure: retry with exponential backoff, or mark failed at the cap. */
   fail(id: string, error: string): void {
     const now = Date.now();
-    const row = this.db
-      .prepare(`SELECT attempts, max_attempts FROM jobs WHERE id = ?`)
-      .get(id) as { attempts: number; max_attempts: number } | undefined;
+    const row = this.db.prepare(`SELECT attempts, max_attempts FROM jobs WHERE id = ?`).get(id) as
+      | { attempts: number; max_attempts: number }
+      | undefined;
     if (!row) return;
     const attempts = row.attempts + 1;
     if (attempts >= row.max_attempts) {
