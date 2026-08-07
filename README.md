@@ -6,16 +6,23 @@
 build; distils it into a knowledge graph; and keeps that graph tidy on its own
 schedule. Claude reasons over it. Everything stays on your machine.
 
-[![CI](https://github.com/eternalAbyss/Cognitive-mirror/actions/workflows/ci.yml/badge.svg)](https://github.com/eternalAbyss/Cognitive-mirror/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/cognitive-mirror.svg)](https://www.npmjs.com/package/cognitive-mirror)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+<!--
+  Two more badges belong here, but each renders broken until the thing it points
+  at exists. Paste them back in at the right moment:
+
+  After CI has run once on the default branch:
+  [![CI](https://github.com/eternalAbyss/Cognitive-mirror/actions/workflows/ci.yml/badge.svg)](https://github.com/eternalAbyss/Cognitive-mirror/actions/workflows/ci.yml)
+
+  After the first `npm publish`:
+  [![npm](https://img.shields.io/npm/v/cognitive-mirror.svg)](https://www.npmjs.com/package/cognitive-mirror)
+-->
 
 ```bash
 npx cognitive-mirror@latest init
 npx cognitive-mirror@latest up
 ```
-
-<img src="docs/images/visualiser.jpg" alt="The knowledge sphere: nodes clustered by domain, with gold arcs connecting concepts across domains" width="820">
 
 </div>
 
@@ -33,9 +40,9 @@ Concretely, on its own schedule it will:
   and merge them.
 - **Notice** that two of your notes contradict each other, and record the
   contradiction rather than silently keeping both.
-- **Connect** ideas across unrelated domains. These are the gold arcs in the
-  screenshot — the ones spanning the sphere rather than hugging a cluster — and
-  they are the point of the whole thing.
+- **Connect** ideas across unrelated domains. The visualiser draws these as gold
+  arcs spanning the sphere rather than hugging a cluster, and they are the point
+  of the whole thing.
 - **Resurface** an open question you left three weeks ago, when something new
   connects to it.
 
