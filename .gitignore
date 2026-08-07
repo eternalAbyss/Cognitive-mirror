@@ -23,3 +23,7 @@ coverage/
 
 .DS_Store
 *.log
+
+# Built by apps/cli (scripts/build.ts) at publish time.
+apps/cli/assets/
+apps/cli/LICENSE

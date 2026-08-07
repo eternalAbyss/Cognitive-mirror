@@ -5,26 +5,42 @@ import { z } from "zod";
 import { getSecret } from "./keychain.js";
 
 /**
- * Load the nearest .env walking up from cwd (apps run with their own package dir
- * as cwd) and return the directory it was found in — the repo root. Relative
- * paths in config (e.g. the queue DB) are resolved against this so every service
- * points at the SAME file regardless of its cwd.
+ * The directory that holds this installation's `.env` and `.data/`.
+ *
+ * Two ways to run, so two ways to find it:
+ *
+ *  - **Installed** (`npx cognitive-mirror`): `CM_HOME` is set by the CLI and
+ *    wins outright. Without it, state would land somewhere arbitrary inside
+ *    `node_modules`, because there is no checkout to walk up to.
+ *  - **From a clone**: walk up from cwd looking for a `.env`, falling back to
+ *    the workspace root. Apps run with their own package dir as cwd, so this is
+ *    what makes every service agree on one queue DB.
+ *
+ * Relative paths in config (the queue DB, budget state) resolve against the
+ * result, so all five services point at the same files either way.
  */
-function loadEnvFile(): string {
+export function resolveHomeDir(): string {
+  const explicit = process.env.CM_HOME;
+  if (explicit) return isAbsolute(explicit) ? explicit : resolve(process.cwd(), explicit);
+
   let dir = process.cwd();
   for (let i = 0; i < 8; i++) {
-    const candidate = join(dir, ".env");
-    if (existsSync(candidate)) {
-      loadDotenv({ path: candidate });
-      return dir;
-    }
+    if (existsSync(join(dir, ".env"))) return dir;
     // Anchor on the workspace root even if no .env exists.
     if (existsSync(join(dir, "pnpm-workspace.yaml"))) return dir;
     const parent = dirname(dir);
-    if (parent === dir) return process.cwd();
+    if (parent === dir) break;
     dir = parent;
   }
   return process.cwd();
+}
+
+/** Resolve the home dir and load its `.env` into process.env. */
+function loadEnvFile(): string {
+  const dir = resolveHomeDir();
+  const candidate = join(dir, ".env");
+  if (existsSync(candidate)) loadDotenv({ path: candidate });
+  return dir;
 }
 
 /**
