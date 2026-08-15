@@ -45,7 +45,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "dotenv": "^16.4.7",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.2.1",
+    "express-rate-limit": "^8.6.2",
     "falkordb": "^6.2.7",
     "hono": "^4.6.16",
     "next": "^16.3.1",
