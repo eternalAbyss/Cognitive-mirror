@@ -1,4 +1,4 @@
-import { GRAPH_CORE, embed, getJson } from "../../../../lib/services";
+import { embed, GRAPH_CORE, getJson } from "../../../../lib/services";
 
 export const dynamic = "force-dynamic";
 

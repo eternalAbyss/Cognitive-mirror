@@ -1,2 +1,2 @@
 // Re-export the shared embedding pipeline (used by both the daemon and the MCP server).
-export { embed, chunkText, ensureEmbedModel } from "@cm/embeddings";
+export { chunkText, embed, ensureEmbedModel } from "@cm/embeddings";

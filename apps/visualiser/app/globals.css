@@ -30,7 +30,7 @@ html,
 body {
   background: rgb(var(--bg));
   overflow: hidden;
-  transition: background .4s ease;
+  transition: background 0.4s ease;
 }
 @keyframes soft-pulse {
   0%,
@@ -76,8 +76,8 @@ body {
   *,
   *::before,
   *::after {
-    animation-duration: .01ms !important;
-    transition-duration: .01ms !important;
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }
 input::placeholder {
@@ -92,59 +92,70 @@ input:focus {
 
 /* hover / focus states ported from the prototype's style-hover / style-focus */
 .cm-enter {
-  transition: color .2s, border-color .2s;
+  transition:
+    color 0.2s,
+    border-color 0.2s;
 }
 .cm-enter:hover {
   color: rgb(var(--ink)) !important;
   border-color: rgba(var(--ink), 0.4) !important;
 }
 .cm-input {
-  transition: border-color .25s, box-shadow .25s;
+  transition:
+    border-color 0.25s,
+    box-shadow 0.25s;
 }
 .cm-input:focus {
   border-color: rgba(var(--ink), 0.36) !important;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1) !important;
 }
 .cm-submit {
-  transition: background .18s;
+  transition: background 0.18s;
 }
 .cm-submit:hover {
   background: rgb(var(--accent-h)) !important;
 }
 .cm-continue {
-  transition: background .18s;
+  transition: background 0.18s;
 }
 .cm-continue:hover {
   background: rgb(var(--accent-h)) !important;
 }
 .cm-park {
-  transition: border-color .18s;
+  transition: border-color 0.18s;
 }
 .cm-park:hover {
   border-color: rgba(var(--ink), 0.4) !important;
 }
 .cm-loopclose {
-  transition: border-color .18s;
+  transition: border-color 0.18s;
 }
 .cm-loopclose:hover {
   border-color: rgba(var(--ink), 0.28) !important;
 }
 .cm-chip {
-  transition: background .18s, border-color .18s;
+  transition:
+    background 0.18s,
+    border-color 0.18s;
 }
 .cm-chip:hover {
   background: rgba(var(--ink), 0.07) !important;
   border-color: rgba(var(--ink), 0.34) !important;
 }
 .cm-dismiss {
-  transition: border-color .18s, color .18s;
+  transition:
+    border-color 0.18s,
+    color 0.18s;
 }
 .cm-dismiss:hover {
   border-color: rgba(var(--ink), 0.4) !important;
   color: rgb(var(--ink)) !important;
 }
 .cm-theme {
-  transition: border-color .18s, color .18s, background .18s;
+  transition:
+    border-color 0.18s,
+    color 0.18s,
+    background 0.18s;
 }
 .cm-theme:hover {
   border-color: rgba(var(--ink), 0.34) !important;
@@ -152,7 +163,10 @@ input:focus {
 }
 /* trash / delete affordance — subtle until hovered, then a soft rose */
 .cm-trash {
-  transition: color .18s, background .18s, border-color .18s;
+  transition:
+    color 0.18s,
+    background 0.18s,
+    border-color 0.18s;
   color: rgba(var(--ink), 0.32);
 }
 .cm-trash:hover {
@@ -161,14 +175,17 @@ input:focus {
   border-color: rgba(194, 85, 122, 0.4) !important;
 }
 .cm-iconbtn {
-  transition: border-color .18s, color .18s, background .18s;
+  transition:
+    border-color 0.18s,
+    color 0.18s,
+    background 0.18s;
 }
 .cm-iconbtn:hover {
   border-color: rgba(var(--ink), 0.34) !important;
   color: rgb(var(--ink)) !important;
 }
 .cm-allow {
-  transition: background .18s;
+  transition: background 0.18s;
 }
 .cm-allow:hover {
   background: rgb(var(--accent-h)) !important;
@@ -187,7 +204,7 @@ input:focus {
   margin-bottom: 0;
 }
 .cm-md p {
-  margin: .55em 0;
+  margin: 0.55em 0;
 }
 .cm-md h1,
 .cm-md h2,
@@ -197,7 +214,7 @@ input:focus {
   font-weight: 600;
   color: rgb(var(--ink));
   line-height: 1.3;
-  margin: .9em 0 .4em;
+  margin: 0.9em 0 0.4em;
 }
 .cm-md h1 {
   font-size: 1.3em;
@@ -226,20 +243,20 @@ input:focus {
 }
 .cm-md ul,
 .cm-md ol {
-  margin: .5em 0;
+  margin: 0.5em 0;
   padding-left: 1.4em;
 }
 .cm-md li {
-  margin: .28em 0;
+  margin: 0.28em 0;
 }
 .cm-md li::marker {
   color: rgba(var(--ink), 0.45);
 }
 .cm-md code {
   font-family: "JetBrains Mono", monospace;
-  font-size: .86em;
+  font-size: 0.86em;
   background: rgba(var(--ink), 0.07);
-  padding: .08em .36em;
+  padding: 0.08em 0.36em;
   border-radius: 5px;
 }
 .cm-md pre {
@@ -248,30 +265,30 @@ input:focus {
   border: 1px solid rgba(var(--ink), 0.1);
   border-radius: 9px;
   padding: 11px 13px;
-  margin: .7em 0;
+  margin: 0.7em 0;
   overflow-x: auto;
 }
 .cm-md pre code {
   background: none;
   padding: 0;
-  font-size: .82em;
+  font-size: 0.82em;
   line-height: 1.55;
 }
 .cm-md blockquote {
   border-left: 2px solid rgba(var(--ink), 0.2);
   padding-left: 12px;
-  margin: .6em 0;
+  margin: 0.6em 0;
   color: rgba(var(--ink), 0.6);
 }
 .cm-md hr {
   border: none;
   border-top: 1px solid rgba(var(--ink), 0.12);
-  margin: .9em 0;
+  margin: 0.9em 0;
 }
 .cm-md table {
   border-collapse: collapse;
-  margin: .6em 0;
-  font-size: .92em;
+  margin: 0.6em 0;
+  font-size: 0.92em;
 }
 .cm-md th,
 .cm-md td {
@@ -285,7 +302,9 @@ input:focus {
 }
 /* edit textarea matches the card aesthetic */
 .cm-edit {
-  transition: border-color .2s, box-shadow .2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 .cm-edit:focus {
   outline: none;

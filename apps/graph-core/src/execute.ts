@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import {
+  childLogger,
   EDGE_TYPES,
   type ExecuteResult,
   type GraphOp,
   NODE_TYPES,
   type SubOpResult,
-  childLogger,
 } from "@cm/shared";
 import { query, vecLiteral } from "./falkor.js";
 import { appendOpLog } from "./oplog.js";

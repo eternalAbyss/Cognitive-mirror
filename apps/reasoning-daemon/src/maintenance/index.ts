@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { embed } from "@cm/embeddings";
 import type { GraphClient } from "@cm/graph-client";
-import { type GraphOp, childLogger, loadConfig } from "@cm/shared";
+import { childLogger, type GraphOp, loadConfig } from "@cm/shared";
 import { adjudicatePair, synthesizeContradiction, synthesizeInsight } from "../anthropic.js";
 
 const log = childLogger("daemon:maintenance");

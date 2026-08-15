@@ -2,8 +2,8 @@ import {
   type ExecuteRequest,
   type ExecuteResult,
   type GraphOp,
-  type NodeType,
   loadConfig,
+  type NodeType,
 } from "@cm/shared";
 
 /**

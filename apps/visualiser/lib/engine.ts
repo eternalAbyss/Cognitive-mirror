@@ -241,7 +241,9 @@ export class CognitiveMirrorEngine {
 
   dispose() {
     cancelAnimationFrame(this.rafId);
-    this._timers.forEach((id) => clearTimeout(id));
+    this._timers.forEach((id) => {
+      clearTimeout(id);
+    });
     window.removeEventListener("mousemove", this.onMove);
     window.removeEventListener("resize", this._onResize);
     window.removeEventListener("pointerdown", this._onPointerDown);
@@ -818,7 +820,7 @@ export class CognitiveMirrorEngine {
     x.textBaseline = "middle";
     try {
       x.letterSpacing = "4px";
-    } catch (e) {}
+    } catch {}
     // Glow behind the text matches the background so labels stay legible on the
     // sphere in both themes (light halo on white, dark halo on near-black).
     x.shadowColor = this.dark ? "rgba(8,10,14,0.95)" : "rgba(255,255,255,0.95)";
@@ -1392,7 +1394,9 @@ export class CognitiveMirrorEngine {
     }
 
     if (this.reduceMotion) {
-      hits.forEach((hit) => this.visited.add(hit.id));
+      hits.forEach((hit) => {
+        this.visited.add(hit.id);
+      });
       this._returnGL();
       this._revealAnswerLive(hits, true);
       return;
@@ -1587,7 +1591,9 @@ export class CognitiveMirrorEngine {
 
   private _converge(ids: string[]) {
     const now = performance.now() / 1000;
-    ids.forEach((id) => this._flash(id, 2.8, now));
+    ids.forEach((id) => {
+      this._flash(id, 2.8, now);
+    });
     this.setState({ callout: null });
     const present = ids.filter((id) => this.nmap[id]);
     if (present.length < 2) return;
@@ -1662,7 +1668,10 @@ export class CognitiveMirrorEngine {
   }
 
   private _resetTraversal() {
-    if (this._timers) this._timers.forEach((id) => clearTimeout(id));
+    if (this._timers)
+      this._timers.forEach((id) => {
+        clearTimeout(id);
+      });
     this._timers = [];
     if (this.trail) {
       for (const m of this.trail) {

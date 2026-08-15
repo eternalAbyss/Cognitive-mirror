@@ -1,17 +1,18 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.8/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
     "useIgnoreFile": true
   },
   "files": {
-    "ignore": [
-      "**/dist/**",
-      "**/.next/**",
-      "**/node_modules/**",
-      "apps/visualiser/design/**",
-      "pnpm-lock.yaml"
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/.next",
+      "!**/node_modules",
+      "!**/apps/visualiser/design",
+      "!**/pnpm-lock.yaml"
     ]
   },
   "formatter": {
@@ -30,7 +31,7 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "suspicious": {
         "noExplicitAny": "off",
         "noConsole": "off",
@@ -42,16 +43,17 @@
         "noUnusedTemplateLiteral": "off"
       },
       "complexity": {
-        "noForEach": "off"
+        "noForEach": "off",
+        "noImportantStyles": "off"
       },
       "a11y": {
-        "recommended": true
+        "preset": "recommended"
       }
     }
   },
   "overrides": [
     {
-      "include": ["apps/visualiser/lib/engine.ts"],
+      "includes": ["**/apps/visualiser/lib/engine.ts"],
       "linter": {
         "rules": {
           "suspicious": {
@@ -64,7 +66,7 @@
       }
     },
     {
-      "include": ["**/*.test.ts"],
+      "includes": ["**/*.test.ts"],
       "linter": {
         "rules": {
           "suspicious": {
@@ -74,14 +76,51 @@
       }
     },
     {
-      "include": ["apps/visualiser/components/CognitiveMirror.tsx"],
+      "includes": ["**/apps/visualiser/components/CognitiveMirror.tsx"],
       "linter": {
         "rules": {
           "a11y": {
             "useKeyWithClickEvents": "off",
             "noSvgWithoutTitle": "off",
             "useSemanticElements": "off",
-            "useFocusableInteractive": "off"
+            "useFocusableInteractive": "off",
+            "noStaticElementInteractions": "off"
+          },
+          "suspicious": {
+            "noArrayIndexKey": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/apps/browser-extension/youtube/scrape.js"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedVariables": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/apps/browser-extension/youtube/popup.html"],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "useValidAnchor": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "**/apps/visualiser/app/opengraph-image.tsx",
+        "**/apps/visualiser/app/apple-icon.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "performance": {
+            "noImgElement": "off"
           }
         }
       }

@@ -1,5 +1,5 @@
 import type { GraphClient } from "@cm/graph-client";
-import { type EnrichPayload, childLogger } from "@cm/shared";
+import { childLogger, type EnrichPayload } from "@cm/shared";
 import { researchWithWebSearch } from "./anthropic.js";
 import { enrichJob } from "./enrich.js";
 

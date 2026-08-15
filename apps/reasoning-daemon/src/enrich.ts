@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { GraphClient } from "@cm/graph-client";
 import {
+  childLogger,
   type EnrichPayload,
   EnrichPayloadSchema,
   type GraphOp,
   type NewNode,
-  childLogger,
 } from "@cm/shared";
 import { enrichArtifact } from "./anthropic.js";
 import { chunkText, embed } from "./embeddings.js";
