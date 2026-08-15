@@ -14,7 +14,7 @@
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.0",
-    "three": "^0.171.0"
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
