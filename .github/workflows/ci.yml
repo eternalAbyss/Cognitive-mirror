@@ -83,7 +83,7 @@ jobs:
           ./node_modules/.bin/cognitive-mirror doctor 2>&1 | tee doctor.txt || true
           grep -q "node >= 22" doctor.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: cognitive-mirror-tarball
           path: /tmp/cognitive-mirror-*.tgz
