@@ -35,11 +35,18 @@ export function resolveHomeDir(): string {
   return process.cwd();
 }
 
-/** Resolve the home dir and load its `.env` into process.env. */
+/**
+ * Resolve the home dir and load its `.env` into process.env.
+ *
+ * `quiet` is load-bearing, not cosmetic: from v17 dotenv announces itself on
+ * **stdout**, and the stdio MCP server has Claude Desktop reading MCP protocol
+ * frames from that exact stream (see `logger.ts`, which pins logging to fd 2
+ * for the same reason). One banner there corrupts the session.
+ */
 function loadEnvFile(): string {
   const dir = resolveHomeDir();
   const candidate = join(dir, ".env");
-  if (existsSync(candidate)) loadDotenv({ path: candidate });
+  if (existsSync(candidate)) loadDotenv({ path: candidate, quiet: true });
   return dir;
 }
 
