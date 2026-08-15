@@ -17,7 +17,7 @@
     "@cm/graph-client": "workspace:*",
     "@cm/queue": "workspace:*",
     "@cm/shared": "workspace:*",
-    "@hono/node-server": "^1.13.7",
+    "@hono/node-server": "^2.1.0",
     "hono": "^4.6.16",
     "node-cron": "^4.6.0",
     "rss-parser": "^3.13.0",
