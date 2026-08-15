@@ -1,38 +1,29 @@
 version: 2
+
+# Version-update PRs are an endless stream by nature — roughly forty direct
+# dependencies means something is newer most weeks, and clearing the queue only
+# makes room for the next one. So this file is tuned for how *rarely* and how
+# *few*, not for staying on the newest release of everything.
 updates:
   - package-ecosystem: npm
     directory: /
+    # Monthly, not weekly. Twelve batches a year rather than fifty.
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
-    # Every dependency must land in a group. Anything ungrouped gets a PR of
-    # its own, and with a limit of 5 the queue simply refills to 5 every week —
-    # which is what it did until pino, hono, react-markdown and express-rate-
-    # limit arrived as four separate PRs.
-    #
-    # A dependency joins the first group here that it matches, so order is the
-    # meaningful part: the non-major catch-all is first and takes almost
-    # everything, and the area groups below it end up holding only majors.
     groups:
-      # Minors and patches across the whole workspace in one PR. These carry no
-      # migration and need no triage — read CI, merge.
-      routine:
-        applies-to: version-updates
-        update-types: ["minor", "patch"]
-        patterns: ["*"]
-      # Majors, split by area so that a red build points at one upgrade rather
-      # than at five unrelated ones. Every major so far has needed real work:
-      # biome 2 rewrote its config, node-cron 4 orphaned its @types package,
-      # Next 16 switched the bundler under the packaged UI.
-      types:
-        patterns: ["@types/*"]
-      react:
-        patterns: ["react", "react-dom", "@types/react", "@types/react-dom", "next"]
-      dev-tooling:
-        patterns: ["@biomejs/*", "vitest", "@vitest/*", "tsup", "tsx", "typescript"]
-      # The catch-all that keeps the queue from refilling: every runtime
-      # dependency without an area above lands here instead of alone.
-      runtime:
+      # Exactly one group, matching everything, with no update-types filter.
+      # Both halves are deliberate. A previous version of this file had a
+      # minor/patch group on the same "*" pattern: it claimed every package,
+      # its filter then dropped the majors, and those majors fell through to no
+      # group at all instead of on to the next one — which is how zod and
+      # dotenv each arrived in a PR of their own. A single unfiltered group
+      # has nothing to fall through to.
+      #
+      # The cost is that a major rides along with the minors, so a red build
+      # needs bisecting. That is the right trade at one PR a month; split the
+      # offending package back out temporarily if it ever happens.
+      all:
         patterns: ["*"]
     ignore:
       # Pinned deliberately: the vector index is built for a fixed embedding
@@ -43,7 +34,7 @@ updates:
       # the engines floor (>=22) and the CI matrix (22, 24) rather than the
       # newest release. Taking a major ahead of those lets code typecheck
       # against APIs that are absent at runtime. Raise this when the floor
-      # rises; minors and patches still come through in the types group.
+      # rises; minors and patches still come through in the group above.
       - dependency-name: "@types/node"
         update-types: [version-update:semver-major]
 
@@ -51,3 +42,9 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    # Grouped for the same reason as npm. Ungrouped, this ecosystem opened one
+    # PR per action — setup-node and upload-artifact arrived separately even
+    # though they are always reviewed together.
+    groups:
+      actions:
+        patterns: ["*"]

@@ -29,7 +29,7 @@ export const EnrichPayloadSchema = z.object({
   url: z.string().optional(),
   occurredAt: z.string().optional(),
   confidence: z.number().min(0).max(1).optional(),
-  meta: z.record(z.unknown()).optional(),
+  meta: z.record(z.string(), z.unknown()).optional(),
 });
 export type EnrichPayload = z.infer<typeof EnrichPayloadSchema>;
 
