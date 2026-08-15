@@ -40,14 +40,14 @@
   },
   "//": "Runtime deps are the visualiser's only. The four backend services are bundled with their @cm/* workspace packages inlined (tsup noExternal), so they need nothing at install time. The Next standalone server cannot be bundled the same way, and shipping its node_modules would both break (npm strips pnpm's symlinks) and hardcode one platform's native binaries \u2014 so npm installs these instead.",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.104.0",
+    "@anthropic-ai/sdk": "^0.116.0",
     "@hono/node-server": "^2.1.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "dotenv": "^16.4.7",
     "express": "^5.2.1",
     "express-rate-limit": "^8.6.2",
-    "falkordb": "^6.2.7",
-    "hono": "^4.6.16",
+    "falkordb": "^6.7.0",
+    "hono": "^4.13.1",
     "next": "^16.3.1",
     "node-cron": "^4.6.0",
     "pino": "^10.3.1",
@@ -57,7 +57,7 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.0",
     "rss-parser": "^3.13.0",
-    "three": "^0.171.0",
+    "three": "^0.185.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {

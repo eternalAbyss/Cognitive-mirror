@@ -13,8 +13,8 @@
   "dependencies": {
     "@cm/shared": "workspace:*",
     "@hono/node-server": "^2.1.0",
-    "falkordb": "^6.2.7",
-    "hono": "^4.6.16",
+    "falkordb": "^6.7.0",
+    "hono": "^4.13.1",
     "zod": "^3.24.1"
   }
 }
