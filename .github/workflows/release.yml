@@ -86,24 +86,29 @@ jobs:
           pnpm pack --pack-destination "$RUNNER_TEMP"
           mkdir -p "$RUNNER_TEMP/stage"
           tar -xzf "$RUNNER_TEMP"/cognitive-mirror-*.tgz -C "$RUNNER_TEMP/stage"
-          node -p "'staged ' + require('$RUNNER_TEMP/stage/package/package.json').name + '@' + require('$RUNNER_TEMP/stage/package/package.json').version"
-
-      # A prerelease version publishes under `next`, never `latest`. Two reasons:
-      # npx cognitive-mirror@latest must not hand people a release candidate,
-      # and it makes this pipeline rehearsable — tag v0.1.1-rc.0 to prove
-      # provenance really attaches, burning an rc instead of a real version,
-      # since a published version can never be reused.
-      - name: Publish
-        if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true
-        working-directory: ${{ runner.temp }}/stage/package
-        run: |
-          version=$(node -p "require('./package.json').version")
+          version=$(node -p "require('$RUNNER_TEMP/stage/package/package.json').version")
+          # A prerelease goes out under `next`, never `latest`. Three reasons,
+          # and the third is not optional: npx cognitive-mirror@latest must not
+          # hand people a release candidate; it makes this pipeline rehearsable,
+          # since tagging v0.1.1-rc.0 proves provenance attaches while spending
+          # an rc rather than a real version; and npm outright refuses to
+          # publish a prerelease unless --tag is given.
+          #
+          # Resolved once here so the publish and the dry run cannot disagree.
           case "$version" in
             *-*) dist_tag=next ;;
             *)   dist_tag=latest ;;
           esac
-          echo "publishing $version under dist-tag $dist_tag"
-          npm publish --access public --provenance --tag "$dist_tag"
+          echo "staged $version -> dist-tag $dist_tag"
+          echo "PKG_VERSION=$version" >> "$GITHUB_ENV"
+          echo "DIST_TAG=$dist_tag" >> "$GITHUB_ENV"
+
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true
+        working-directory: ${{ runner.temp }}/stage/package
+        run: |
+          echo "publishing $PKG_VERSION under dist-tag $DIST_TAG"
+          npm publish --access public --provenance --tag "$DIST_TAG"
 
       # Provenance failing open is what went unnoticed last time: the release was
       # green, the flag was set, and the package shipped unsigned anyway. Assert
@@ -111,15 +116,14 @@ jobs:
       - name: Verify the published version carries provenance
         if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true
         run: |
-          version="${GITHUB_REF_NAME#v}"
           att=""
           for _ in $(seq 1 10); do
-            att=$(npm view "cognitive-mirror@$version" dist.attestations --json 2>/dev/null || true)
+            att=$(npm view "cognitive-mirror@$PKG_VERSION" dist.attestations --json 2>/dev/null || true)
             if [ -n "$att" ] && [ "$att" != "null" ]; then break; fi
             sleep 6
           done
           if [ -z "$att" ] || [ "$att" = "null" ]; then
-            echo "::error::cognitive-mirror@$version published WITHOUT provenance; it cannot be re-published, so ship $version+1 once the cause is fixed"
+            echo "::error::cognitive-mirror@$PKG_VERSION published WITHOUT provenance; it cannot be re-published, so ship the next version once the cause is fixed"
             exit 1
           fi
           echo "provenance attached: $att"
@@ -127,4 +131,21 @@ jobs:
       - name: Validate the package without publishing
         if: inputs.dry_run == true
         working-directory: ${{ runner.temp }}/stage/package
-        run: npm publish --dry-run --access public
+        run: |
+          # --dry-run still asks the registry, so between releases — when the
+          # version in the tree is the one already published — it reports a
+          # collision and fails. That is the single error this step forgives:
+          # reaching it means packing, staging and every other check passed,
+          # which is all a dry run can establish.
+          set +e
+          out=$(npm publish --dry-run --access public --tag "$DIST_TAG" 2>&1)
+          status=$?
+          set -e
+          echo "$out"
+          if [ "$status" -ne 0 ]; then
+            if echo "$out" | grep -qi "cannot publish over the previously published versions"; then
+              echo "::notice::package validates; $PKG_VERSION is already on the registry, which is expected outside a release"
+            else
+              exit "$status"
+            fi
+          fi
