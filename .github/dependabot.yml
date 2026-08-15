@@ -19,6 +19,13 @@ updates:
       # dimension, and a major FalkorDB bump needs a migration, not a merge.
       - dependency-name: falkordb
         update-types: [version-update:semver-major]
+      # These typings describe the runtime we actually support, so they follow
+      # the engines floor (>=22) and the CI matrix (22, 24) rather than the
+      # newest release. Taking a major ahead of those lets code typecheck
+      # against APIs that are absent at runtime. Raise this when the floor
+      # rises; minors and patches still come through in the types group.
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: github-actions
     directory: /
