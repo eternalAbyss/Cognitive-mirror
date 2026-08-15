@@ -5,15 +5,35 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Every dependency must land in a group. Anything ungrouped gets a PR of
+    # its own, and with a limit of 5 the queue simply refills to 5 every week —
+    # which is what it did until pino, hono, react-markdown and express-rate-
+    # limit arrived as four separate PRs.
+    #
+    # A dependency joins the first group here that it matches, so order is the
+    # meaningful part: the non-major catch-all is first and takes almost
+    # everything, and the area groups below it end up holding only majors.
     groups:
-      # One PR per ecosystem rather than per package — these move together and
-      # reviewing them separately is noise.
+      # Minors and patches across the whole workspace in one PR. These carry no
+      # migration and need no triage — read CI, merge.
+      routine:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+        patterns: ["*"]
+      # Majors, split by area so that a red build points at one upgrade rather
+      # than at five unrelated ones. Every major so far has needed real work:
+      # biome 2 rewrote its config, node-cron 4 orphaned its @types package,
+      # Next 16 switched the bundler under the packaged UI.
       types:
         patterns: ["@types/*"]
       react:
         patterns: ["react", "react-dom", "@types/react", "@types/react-dom", "next"]
       dev-tooling:
         patterns: ["@biomejs/*", "vitest", "@vitest/*", "tsup", "tsx", "typescript"]
+      # The catch-all that keeps the queue from refilling: every runtime
+      # dependency without an area above lands here instead of alone.
+      runtime:
+        patterns: ["*"]
     ignore:
       # Pinned deliberately: the vector index is built for a fixed embedding
       # dimension, and a major FalkorDB bump needs a migration, not a merge.
