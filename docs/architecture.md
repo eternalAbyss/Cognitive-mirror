@@ -156,7 +156,7 @@ through `executeOps`, so there is one op log entry per batch and no write races.
 | **Durable queue** | **`node:sqlite`** (Node built-in) | Persisting jobs is what makes ingestion survive outages. The built-in driver needs **no native build step** — important on bleeding-edge Node where `better-sqlite3` has no prebuilt binary. |
 | **HTTP framework** | **Hono** | Tiny, fast, typed — used for graph-core's internal API, the ingestion webhook, and the daemon's status/research endpoints. |
 | **MCP HTTP server** | **Express** | The MCP SDK's Streamable-HTTP transport plugs straight into Express. |
-| **Visualiser** | **Next.js 15 + React 19 + Three.js** | Server API routes proxy the localhost-only services (browser stays same-origin); Three.js renders the WebGL knowledge sphere. |
+| **Visualiser** | **Next.js 16 + React 19 + Three.js** | Server API routes proxy the localhost-only services (browser stays same-origin); Three.js renders the WebGL knowledge sphere. |
 | **Notifications** | **ntfy** (optional) | Push alerts when the budget breaker trips or a job exhausts retries. |
 | **Validation** | **Zod** | One schema source for config, ops, ingest payloads, and API bodies. |
 | **Secrets** | macOS **Keychain** (fallback) | Keeps the Anthropic key / GitHub token out of plaintext env files on the deployment box. |

@@ -96,4 +96,5 @@ For live data the backend must be up (`pnpm up`, or `pnpm dev` at the repo root)
 Accessibility. Several controls are clickable `<div>`s without keyboard handlers,
 and the decorative SVGs have no titles — the Biome a11y rules are switched off
 for `components/CognitiveMirror.tsx` to keep that visible rather than pretending
-it's clean. It's a well-scoped contribution if you want one.
+it's clean. One list there is also keyed by array index. It's a well-scoped
+contribution if you want one.
