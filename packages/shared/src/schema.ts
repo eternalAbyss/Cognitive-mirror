@@ -64,7 +64,7 @@ export const GraphNodeSchema = z.object({
    */
   externalId: z.string().optional(),
   /** Free-form provenance / source metadata, JSON-stringified at the storage layer. */
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 export type GraphNode = z.infer<typeof GraphNodeSchema>;
 

@@ -63,7 +63,7 @@ const num = (def: number) =>
     .pipe(z.number());
 
 /** Env booleans: "true"/"1"/"yes" (any case) are true; anything else is false. */
-const bool = (def: boolean): z.ZodType<boolean, z.ZodTypeDef, string | undefined> =>
+const bool = (def: boolean): z.ZodType<boolean, string | undefined> =>
   z
     .string()
     .optional()

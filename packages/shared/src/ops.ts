@@ -53,16 +53,35 @@ export const PROTECTED_NODE_PROPS = [
 const PropertyNameSchema = z
   .string()
   .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "property names must be plain identifiers")
-  .max(128)
-  .refine(
-    (k) => !(PROTECTED_NODE_PROPS as readonly string[]).includes(k),
-    (k) => ({ message: `'${k}' is a protected property and cannot be patched` }),
-  );
+  .max(128);
+
+/**
+ * A `patch`/`props` record: identifier-shaped keys, none of them protected.
+ *
+ * The protected-name check sits on the record rather than on
+ * `PropertyNameSchema` because zod 4 discards a key schema's own error and
+ * reports a flat "Invalid key in record" instead. Naming the offending
+ * property is the entire value of the message — these arrive from MCP tool
+ * calls, where the caller has to be told which key to drop — so the check is
+ * applied where its message survives.
+ */
+const propertyRecord = () =>
+  z.record(PropertyNameSchema, z.unknown()).superRefine((rec, ctx) => {
+    for (const key of Object.keys(rec)) {
+      if ((PROTECTED_NODE_PROPS as readonly string[]).includes(key)) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: `'${key}' is a protected property and cannot be patched`,
+        });
+      }
+    }
+  });
 
 const UpdateNode = z.object({
   kind: z.literal("updateNode"),
   id: z.string().uuid(),
-  patch: z.record(PropertyNameSchema, z.unknown()),
+  patch: propertyRecord(),
 });
 
 const SoftDeleteNode = z.object({
@@ -75,7 +94,7 @@ const CreateEdge = z.object({
   from: z.string().uuid(),
   to: z.string().uuid(),
   type: EdgeTypeSchema,
-  props: z.record(PropertyNameSchema, z.unknown()).optional(),
+  props: propertyRecord().optional(),
 });
 
 const Tombstone = z.object({

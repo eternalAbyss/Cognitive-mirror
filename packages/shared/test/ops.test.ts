@@ -29,12 +29,12 @@ describe("GraphOp schema", () => {
         {
           kind: "createNode",
           node: { type: "Source", title: "s" },
-          id: "11111111-1111-1111-1111-111111111111",
+          id: "11111111-1111-4111-8111-111111111111",
         },
         {
           kind: "createEdge",
-          from: "11111111-1111-1111-1111-111111111111",
-          to: "22222222-2222-2222-2222-222222222222",
+          from: "11111111-1111-4111-8111-111111111111",
+          to: "22222222-2222-4222-8222-222222222222",
           type: "MENTIONS",
         },
       ],
@@ -45,7 +45,11 @@ describe("GraphOp schema", () => {
 });
 
 describe("updateNode patch key validation", () => {
-  const ID = "11111111-1111-1111-1111-111111111111";
+  // The `4` and `8` nibbles are load-bearing, not decoration: from zod 4
+  // .uuid() enforces the RFC-4122 version and variant fields, so a repdigit
+  // like 1111-1111 no longer parses. Every id in this system comes from
+  // crypto.randomUUID(), which is v4, so the fixtures match production.
+  const ID = "11111111-1111-4111-8111-111111111111";
   const patch = (p: Record<string, unknown>) =>
     GraphOpSchema.parse({ kind: "updateNode", id: ID, patch: p });
 
@@ -70,12 +74,22 @@ describe("updateNode patch key validation", () => {
     expect(() => patch({ [key]: "anything" })).toThrow();
   });
 
+  // These reach the caller through MCP tool results, so "something was wrong"
+  // is not good enough — the key has to be named. Asserted because it has been
+  // lost once already: zod 4 drops a record key schema's own error and reports
+  // a flat "Invalid key in record", which is why the check lives on the record.
+  it.each(PROTECTED_NODE_PROPS)("names %s in the rejection message", (key) => {
+    expect(() => patch({ [key]: "anything" })).toThrow(
+      `'${key}' is a protected property and cannot be patched`,
+    );
+  });
+
   it("rejects protected keys on createEdge props too", () => {
     expect(() =>
       GraphOpSchema.parse({
         kind: "createEdge",
         from: ID,
-        to: "22222222-2222-2222-2222-222222222222",
+        to: "22222222-2222-4222-8222-222222222222",
         type: "MENTIONS",
         props: { "bad`key": 1 },
       }),
