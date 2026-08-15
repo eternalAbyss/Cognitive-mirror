@@ -1,6 +1,6 @@
 {
   "name": "cognitive-mirror",
-  "version": "0.1.1-rc.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "A local-first second brain: ingests your activity into a self-managing knowledge graph that Claude can reason over.",
   "license": "MIT",

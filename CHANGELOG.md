@@ -25,14 +25,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - CI on Node 22 and 24, plus a release workflow that publishes with npm
   provenance. CI installs the built tarball outside the repo, because that is
   the only place packaging bugs show up.
-
-  Provenance did not actually attach on 0.1.0: `pnpm publish` accepts
-  `--provenance` and silently ignores it (pnpm#6607), so that release is
-  unsigned and cannot be re-signed. The workflow now packs with pnpm — the only
-  one of the two that resolves `workspace:*` — and publishes with npm, which is
-  the only one that attaches the attestation. It authenticates with OIDC
-  through npm trusted publishing rather than a token, and asserts the
-  attestation exists on the registry afterwards instead of trusting the flag.
 - Biome for linting and formatting; root vitest config with coverage.
 
 ### Changed
@@ -84,6 +76,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `TODO.md` — its remaining items are done; its history lives here.
 - The Claude Design brief and HTML prototype, which described an aesthetic the
   app deliberately moved away from.
+
+## [0.1.1]
+
+### Fixed
+
+- **The published package now carries provenance.** 0.1.0 went to npm with
+  `dist.attestations` null despite `--provenance` being on the command:
+  `pnpm publish` accepts the flag and silently drops it
+  ([pnpm#6607](https://github.com/pnpm/pnpm/issues/6607)). The release was
+  green and the package shipped unsigned, and 0.1.0 cannot be re-signed.
+
+  Neither tool could do this alone. Only pnpm rewrites the `workspace:*`
+  devDependencies into real versions; only npm attaches the attestation. So
+  pnpm packs, the tarball is unpacked, and npm publishes that directory.
+
+  Authentication moved to OIDC via npm trusted publishing, which retires the
+  token that had to bypass 2FA to work in CI. Two guards were added because the
+  failure was silent and a version number cannot be reused: a pre-flight that
+  refuses to upload if npm is older than 11.5.1 or no OIDC token is present,
+  and a post-publish assertion that the registry really lists an attestation.
+  Prereleases publish under `next`, so the pipeline can be rehearsed without
+  spending a real version — which is how 0.1.1-rc.0 proved this end to end.
 
 ## [0.1.0]
 
