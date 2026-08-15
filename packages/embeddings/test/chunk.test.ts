@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
 import { resetConfigCache } from "@cm/shared";
+import { beforeEach, describe, expect, it } from "vitest";
 import { chunkText } from "../src/index.js";
 
 describe("chunkText", () => {

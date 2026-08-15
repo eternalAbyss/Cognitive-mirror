@@ -1,0 +1,51 @@
+name: Bug report
+description: Something doesn't work
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please don't paste your `.env`, API keys, or anything out of your graph —
+        node summaries are personal by nature.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      placeholder: |
+        1. cognitive-mirror up
+        2. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `cognitive-mirror doctor`
+      description: This covers most of what we'd otherwise ask for. It prints no secrets.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: From `cognitive-mirror up`, or the service that failed.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`cognitive-mirror version`, or the commit if you're running from a clone."
+    validations:
+      required: true

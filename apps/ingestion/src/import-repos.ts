@@ -1,4 +1,4 @@
-import { loadConfig, childLogger } from "@cm/shared";
+import { childLogger, loadConfig } from "@cm/shared";
 
 /**
  * One-shot import of your GitHub repositories into the knowledge graph (design §2).
@@ -29,7 +29,11 @@ interface GhRepo {
   pushed_at?: string;
 }
 
-function gh(path: string, token: string, accept = "application/vnd.github+json"): Promise<Response> {
+function gh(
+  path: string,
+  token: string,
+  accept = "application/vnd.github+json",
+): Promise<Response> {
   return fetch(`https://api.github.com${path}`, {
     headers: {
       accept,
@@ -44,7 +48,10 @@ function gh(path: string, token: string, accept = "application/vnd.github+json")
 async function listOwnedRepos(token: string): Promise<GhRepo[]> {
   const repos: GhRepo[] = [];
   for (let page = 1; page <= 20; page++) {
-    const res = await gh(`/user/repos?affiliation=owner&sort=pushed&per_page=100&page=${page}`, token);
+    const res = await gh(
+      `/user/repos?affiliation=owner&sort=pushed&per_page=100&page=${page}`,
+      token,
+    );
     if (!res.ok) throw new Error(`github /user/repos -> ${res.status}: ${await res.text()}`);
     const batch = (await res.json()) as GhRepo[];
     repos.push(...batch);
@@ -108,13 +115,22 @@ async function main(): Promise<void> {
         const j = (await res.json()) as { enqueued?: boolean };
         if (j.enqueued) added++;
       } else {
-        log.warn({ repo: r.full_name, status: res.status }, "ingest POST failed (is the ingestion service running?)");
+        log.warn(
+          { repo: r.full_name, status: res.status },
+          "ingest POST failed (is the ingestion service running?)",
+        );
       }
     } catch (err) {
-      log.warn({ repo: r.full_name, err: String((err as Error)?.message ?? err) }, "ingest POST error");
+      log.warn(
+        { repo: r.full_name, err: String((err as Error)?.message ?? err) },
+        "ingest POST error",
+      );
     }
   }
-  log.info({ total: repos.length, enqueued: added }, "repo import done (rest were unchanged duplicates)");
+  log.info(
+    { total: repos.length, enqueued: added },
+    "repo import done (rest were unchanged duplicates)",
+  );
 }
 
 main().then(

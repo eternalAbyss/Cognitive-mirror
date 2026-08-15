@@ -140,10 +140,7 @@ export interface ChunkHit {
 }
 
 /** Content-chunk retrieval (design §11, content-chunk role) for grounded answers. */
-export async function searchChunks(
-  embedding: number[],
-  k = 8,
-): Promise<ChunkHit[]> {
+export async function searchChunks(embedding: number[], k = 8): Promise<ChunkHit[]> {
   const safeK = Math.max(1, Math.min(100, Math.floor(k)));
   const rows = await query<{
     id: string;

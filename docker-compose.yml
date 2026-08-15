@@ -1,6 +1,14 @@
-# Local-dev data plane. Everything binds to 127.0.0.1 only.
-# FalkorDB is the single data store (graph + native vector index) — replaces the
-# doc's Kuzu + Qdrant. Ollama serves embeddings. Kuzu is dead (archived Oct 2025).
+# The data plane. Everything binds to 127.0.0.1 only.
+# FalkorDB is the single data store (graph + native vector index); Ollama serves
+# embeddings.
+#
+# The project name is pinned rather than inferred from the parent directory,
+# because this file is used from two places: a git checkout, and the copy inside
+# the installed npm package. Without it Compose derives a different project name
+# per location and the second one fails on a container-name conflict — while the
+# first one's volumes quietly become unreachable.
+name: cognitive-mirror
+
 services:
   falkordb:
     image: falkordb/falkordb:latest

@@ -1,4 +1,4 @@
-import { GRAPH_CORE, DAEMON, getJson } from "../../../lib/services";
+import { DAEMON, GRAPH_CORE, getJson } from "../../../lib/services";
 
 export const dynamic = "force-dynamic";
 
@@ -10,5 +10,9 @@ export async function GET() {
       {},
     ),
   ]);
-  return Response.json({ counts: counts.counts, budget: status.budget ?? null, queue: status.queue ?? null });
+  return Response.json({
+    counts: counts.counts,
+    budget: status.budget ?? null,
+    queue: status.queue ?? null,
+  });
 }

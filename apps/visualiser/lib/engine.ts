@@ -38,6 +38,16 @@ export interface ViewState {
   noMatch: boolean;
 }
 
+/**
+ * What a drawn arc represents. Arcs are re-coloured on a theme switch, so each
+ * one carries its role rather than a baked-in hex.
+ *  - `relates`     cross-domain RELATES_TO — gold, the signature connection
+ *  - `contradicts` CONTRADICTS — crimson, kept distinct because "these two ideas
+ *                  conflict" is a different claim from "these two ideas connect"
+ *  - `query`       a live traversal hop during a search — cyan, transient
+ */
+export type ArcRole = "relates" | "contradicts" | "query";
+
 // Cosine DISTANCE threshold for "this query is actually in the graph" (lower = closer).
 // Above this, the nearest node is too unrelated to claim as an answer.
 const MATCH_MAX_DISTANCE = 0.4;
@@ -150,8 +160,23 @@ export class CognitiveMirrorEngine {
   private dataLoaded = false;
 
   private CYAN = "#0E86A8";
-  private PURPLE = "#8B5CF6"; // purple cross-domain connection lines
   private CRIMSON = "#C2557A";
+  // Cross-domain connection lines are gold (design brief §"cross-domain arcs").
+  // Two shades because the arcs sit on very different backgrounds: the bright
+  // #D8A63E (the same gold as the synthesis flare) disappears against the white
+  // theme, so the light theme uses a deeper, less luminous gold.
+  private GOLD_LIGHT = "#B07B16";
+  private GOLD_DARK = "#D8A63E";
+
+  /** Current gold for the active theme. */
+  private _gold(): string {
+    return this.dark ? this.GOLD_DARK : this.GOLD_LIGHT;
+  }
+
+  /** The colour a persistent arc should currently be, given what it represents. */
+  private _arcColor(role: ArcRole): string {
+    return role === "contradicts" ? this.CRIMSON : role === "query" ? this.CYAN : this._gold();
+  }
 
   // Theme: light renders dark-ink dots on a white sphere; dark inverts the
   // grayscale ramps in the shaders and lightens the data nodes/labels.
@@ -187,6 +212,8 @@ export class CognitiveMirrorEngine {
     if (this.lineMat?.uniforms?.uDark) this.lineMat.uniforms.uDark.value = u;
     const fg = this._fg();
     for (const id in this.sprites) this.sprites[id]?.material?.color?.set(fg);
+    // Gold is theme-dependent, so persistent arcs have to be re-tinted too.
+    for (const a of this.arcs) a.mat.color.set(this._arcColor(a.role));
     this._applyTint();
     this._rebuildLabels();
   }
@@ -253,18 +280,31 @@ export class CognitiveMirrorEngine {
   cycleSpeed() {
     const ns = this.speed === 1 ? 2 : 1;
     this.speed = ns;
-    this.setState({ speedLabel: ns + "×" });
+    this.setState({ speedLabel: `${ns}×` });
   }
   replay() {
     this._resetTraversal();
-    this.setState({ queryState: "idle", showAnswer: false, traceLines: [], callout: null, sources: [] });
+    this.setState({
+      queryState: "idle",
+      showAnswer: false,
+      traceLines: [],
+      callout: null,
+      sources: [],
+    });
     void this.runLiveQuery(this.lastQuery || "What connects my thinking across domains?");
   }
   closeAnswer() {
     const mount = document.getElementById("cm-canvas-mount");
     if (mount) mount.style.filter = "blur(0.35px)";
     this._resetTraversal();
-    this.setState({ showAnswer: false, queryState: "idle", traceLines: [], callout: null, traverseStage: "", sources: [] });
+    this.setState({
+      showAnswer: false,
+      queryState: "idle",
+      traceLines: [],
+      callout: null,
+      traverseStage: "",
+      sources: [],
+    });
   }
   flash(id: string, pk = 2) {
     if (this.nmap[id]) this._flash(id, pk, performance.now() / 1000);
@@ -294,14 +334,24 @@ export class CognitiveMirrorEngine {
   async researchCurrent() {
     const topic = this.lastQuery;
     if (!topic) return;
-    this.setState({ noMatch: false, traverseStage: "researching the web…", answerText: `Searching the web for “${topic}” and taking notes…` });
+    this.setState({
+      noMatch: false,
+      traverseStage: "researching the web…",
+      answerText: `Searching the web for “${topic}” and taking notes…`,
+    });
     try {
       const res = await fetch("/api/research", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ topic }),
       });
-      const data = (await res.json()) as { ok?: boolean; summary?: string; conceptsAdded?: number; conceptTitles?: string[]; error?: string };
+      const data = (await res.json()) as {
+        ok?: boolean;
+        summary?: string;
+        conceptsAdded?: number;
+        conceptTitles?: string[];
+        error?: string;
+      };
       if (data.ok) {
         const titles = data.conceptTitles ?? [];
         // Log the nodes it created (browser console).
@@ -312,10 +362,16 @@ export class CognitiveMirrorEngine {
           sources: titles.map((t) => ({ label: t, id: "" })),
         });
       } else {
-        this.setState({ traverseStage: "", answerText: `Research failed: ${data.error ?? "unknown error"}` });
+        this.setState({
+          traverseStage: "",
+          answerText: `Research failed: ${data.error ?? "unknown error"}`,
+        });
       }
     } catch {
-      this.setState({ traverseStage: "", answerText: "Research failed — is the reasoning daemon running?" });
+      this.setState({
+        traverseStage: "",
+        answerText: "Research failed — is the reasoning daemon running?",
+      });
     }
   }
 
@@ -368,8 +424,20 @@ export class CognitiveMirrorEngine {
     this.clusters.push({ name: key, tc: d.tc, pc: d.pc });
     this.clusterIndex.set(key, idx);
     const T = this.T;
-    const dir = new T.Vector3(Math.sin(d.pc) * Math.cos(d.tc), Math.cos(d.pc), Math.sin(d.pc) * Math.sin(d.tc));
-    const sp = new T.Sprite(new T.SpriteMaterial({ map: this.labelTex(key, 32, this._labelCol("cluster")), transparent: true, opacity: 0.5, depthTest: false, depthWrite: false }));
+    const dir = new T.Vector3(
+      Math.sin(d.pc) * Math.cos(d.tc),
+      Math.cos(d.pc),
+      Math.sin(d.pc) * Math.sin(d.tc),
+    );
+    const sp = new T.Sprite(
+      new T.SpriteMaterial({
+        map: this.labelTex(key, 32, this._labelCol("cluster")),
+        transparent: true,
+        opacity: 0.5,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
     sp.position.copy(dir.clone().multiplyScalar(this.R * 1.34));
     sp.scale.set(1.3, 0.2, 1);
     this.group.add(sp);
@@ -385,12 +453,19 @@ export class CognitiveMirrorEngine {
     const h = hash(n.id);
     const dt = ((h % 1000) / 1000 - 0.5) * 1.3;
     const dp = (((h >> 10) % 1000) / 1000 - 0.5) * 1.3;
-    const th = cl.tc + dt, ph = cl.pc + dp;
-    const dir = new T.Vector3(Math.sin(ph) * Math.cos(th), Math.cos(ph), Math.sin(ph) * Math.sin(th));
+    const th = cl.tc + dt;
+    const ph = cl.pc + dp;
+    const dir = new T.Vector3(
+      Math.sin(ph) * Math.cos(th),
+      Math.cos(ph),
+      Math.sin(ph) * Math.sin(th),
+    );
     let best = this.verts[0]!;
     let bd = 1e9;
     for (const v of this.verts) {
-      const dx = v[0]! - dir.x * this.R, dy = v[1]! - dir.y * this.R, dz = v[2]! - dir.z * this.R;
+      const dx = v[0]! - dir.x * this.R;
+      const dy = v[1]! - dir.y * this.R;
+      const dz = v[2]! - dir.z * this.R;
       const d = dx * dx + dy * dy + dz * dz;
       if (d < bd) {
         bd = d;
@@ -400,7 +475,16 @@ export class CognitiveMirrorEngine {
     const pos = new T.Vector3(best[0], best[1], best[2]);
     this.nmap[n.id] = { pos, cl: ci };
     this.nodeMeta[n.id] = n;
-    const sp = new T.Sprite(new T.SpriteMaterial({ map: this._sharedDot(), color: this._fg(), transparent: true, opacity: 1, depthTest: false, depthWrite: false }));
+    const sp = new T.Sprite(
+      new T.SpriteMaterial({
+        map: this._sharedDot(),
+        color: this._fg(),
+        transparent: true,
+        opacity: 1,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
     sp.position.copy(pos);
     sp.scale.setScalar(spawn ? 0.01 : 0.12);
     this.group.add(sp);
@@ -408,7 +492,15 @@ export class CognitiveMirrorEngine {
     if (LABELLED_TYPES.has(n.type) && this.labelledCount < 60) {
       this.labelledCount++;
       const kind = n.type === "Insight" ? "insight" : "node";
-      const lab = new T.Sprite(new T.SpriteMaterial({ map: this.labelTex(n.title, 24, this._labelCol(kind)), transparent: true, opacity: 0.7, depthTest: false, depthWrite: false }));
+      const lab = new T.Sprite(
+        new T.SpriteMaterial({
+          map: this.labelTex(n.title, 24, this._labelCol(kind)),
+          transparent: true,
+          opacity: 0.7,
+          depthTest: false,
+          depthWrite: false,
+        }),
+      );
       const off = dir.clone().multiplyScalar(this.R + 0.34);
       off.y += 0.12;
       lab.position.copy(off);
@@ -419,7 +511,7 @@ export class CognitiveMirrorEngine {
     if (spawn) this._flash(n.id, 2.8, performance.now() / 1000); // pop into existence
   }
 
-  /** Cross-domain RELATES_TO (purple) + CONTRADICTS (crimson) arcs — deduped. */
+  /** Cross-domain RELATES_TO (gold) + CONTRADICTS (crimson) arcs — deduped. */
   private _addArc(e: GraphEdgeDto) {
     const a = this.nodeMeta[e.from];
     const b = this.nodeMeta[e.to];
@@ -427,13 +519,13 @@ export class CognitiveMirrorEngine {
     const key = `${e.from}->${e.to}:${e.type}`;
     if (this.arcKeys.has(key)) return;
     if (e.type === "CONTRADICTS") {
-      const arc = this._makeArc(e.from, e.to, 0.011, this.CRIMSON);
+      const arc = this._makeArc(e.from, e.to, 0.011, "contradicts");
       if (arc) {
         this.arcs.push(arc);
         this.arcKeys.add(key);
       }
     } else if (e.type === "RELATES_TO" && a.domain && b.domain && a.domain !== b.domain) {
-      const arc = this._makeArc(e.from, e.to, 0.006, this.PURPLE);
+      const arc = this._makeArc(e.from, e.to, 0.007, "relates");
       if (arc) {
         this.arcs.push(arc);
         this.arcKeys.add(key);
@@ -449,10 +541,12 @@ export class CognitiveMirrorEngine {
   applyLiveEvent(evt: { type: string; detail?: Record<string, unknown> }) {
     if (this.state.queryState !== "idle") return;
     const d = evt.detail ?? {};
-    const ids = [d.id, d.from, d.to].filter((x): x is string => typeof x === "string" && !!this.nmap[x]);
+    const ids = [d.id, d.from, d.to].filter(
+      (x): x is string => typeof x === "string" && !!this.nmap[x],
+    );
     const now = performance.now() / 1000;
     if (evt.type === "write" && ids.length >= 2) {
-      this._hop(ids[0]!, ids[1]!, evt.detail?.type === "CONTRADICTS" ? this.CRIMSON : this.PURPLE);
+      this._hop(ids[0]!, ids[1]!, evt.detail?.type === "CONTRADICTS" ? "contradicts" : "relates");
     }
     for (const id of ids) this._flash(id, 1.8, now);
   }
@@ -481,16 +575,27 @@ export class CognitiveMirrorEngine {
     if (this.dark) {
       // Additive glow (screen) so the wash reads against the near-black sphere.
       el.style.mixBlendMode = "screen";
-      if (h >= 5 && h < 11) c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(60,46,24,.5), rgba(0,0,0,0) 70%)";
-      else if (h >= 11 && h < 17) c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(28,40,66,.45), rgba(0,0,0,0) 70%)";
-      else if (h >= 17 && h < 21) c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(52,28,52,.5), rgba(0,0,0,0) 70%)";
+      if (h >= 5 && h < 11)
+        c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(60,46,24,.5), rgba(0,0,0,0) 70%)";
+      else if (h >= 11 && h < 17)
+        c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(28,40,66,.45), rgba(0,0,0,0) 70%)";
+      else if (h >= 17 && h < 21)
+        c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(52,28,52,.5), rgba(0,0,0,0) 70%)";
       else c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(24,30,60,.55), rgba(0,0,0,0) 70%)";
     } else {
       el.style.mixBlendMode = "multiply";
-      if (h >= 5 && h < 11) c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(255,247,232,.5), rgba(250,248,244,0) 70%)";
-      else if (h >= 11 && h < 17) c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(240,246,255,.4), rgba(248,250,252,0) 70%)";
-      else if (h >= 17 && h < 21) c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(250,240,248,.45), rgba(250,247,250,0) 70%)";
-      else c = "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(234,238,250,.5), rgba(244,246,252,0) 70%)";
+      if (h >= 5 && h < 11)
+        c =
+          "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(255,247,232,.5), rgba(250,248,244,0) 70%)";
+      else if (h >= 11 && h < 17)
+        c =
+          "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(240,246,255,.4), rgba(248,250,252,0) 70%)";
+      else if (h >= 17 && h < 21)
+        c =
+          "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(250,240,248,.45), rgba(250,247,250,0) 70%)";
+      else
+        c =
+          "radial-gradient(ellipse 80% 70% at 50% 30%, rgba(234,238,250,.5), rgba(244,246,252,0) 70%)";
     }
     el.style.background = c;
   }
@@ -511,7 +616,12 @@ export class CognitiveMirrorEngine {
   private _isSphereSpace(e: { target: EventTarget | null }): boolean {
     const t = e.target as HTMLElement | null;
     if (!t) return false;
-    return t.id === "cm-hud" || t.id === "cm-canvas-mount" || t.id === "cm-tint" || t.tagName === "CANVAS";
+    return (
+      t.id === "cm-hud" ||
+      t.id === "cm-canvas-mount" ||
+      t.id === "cm-tint" ||
+      t.tagName === "CANVAS"
+    );
   }
 
   private _busy(): boolean {
@@ -529,10 +639,12 @@ export class CognitiveMirrorEngine {
 
   private _onPointerMove(e: PointerEvent) {
     if (this.dragging) {
-      const dx = e.clientX - this.lastPX, dy = e.clientY - this.lastPY;
+      const dx = e.clientX - this.lastPX;
+      const dy = e.clientY - this.lastPY;
       this.lastPX = e.clientX;
       this.lastPY = e.clientY;
-      if (Math.abs(e.clientX - this.downPX) + Math.abs(e.clientY - this.downPY) > 4) this.didDrag = true;
+      if (Math.abs(e.clientX - this.downPX) + Math.abs(e.clientY - this.downPY) > 4)
+        this.didDrag = true;
       const k = 0.006;
       this._rotateGroup(dx * k, dy * k);
       this.velX = dx * k;
@@ -587,7 +699,9 @@ export class CognitiveMirrorEngine {
       if (v.z >= 1) continue;
       const sx = (v.x * 0.5 + 0.5) * rect.width + rect.left;
       const sy = (-v.y * 0.5 + 0.5) * rect.height + rect.top;
-      const dx = sx - cx, dy = sy - cy, d = dx * dx + dy * dy;
+      const dx = sx - cx;
+      const dy = sy - cy;
+      const d = dx * dx + dy * dy;
       if (d < bestD) {
         bestD = d;
         best = id;
@@ -603,7 +717,15 @@ export class CognitiveMirrorEngine {
     document.body.style.cursor = id ? "pointer" : "";
     if (id) {
       const m = this.nodeMeta[id];
-      if (m) this.setState({ callout: { id, tag: m.title, type: (m.type || "").toUpperCase(), line: (m.summary || "").slice(0, 120) } });
+      if (m)
+        this.setState({
+          callout: {
+            id,
+            tag: m.title,
+            type: (m.type || "").toUpperCase(),
+            line: (m.summary || "").slice(0, 120),
+          },
+        });
     } else if (this.state.queryState === "idle") {
       this.setState({ callout: null });
     }
@@ -611,7 +733,9 @@ export class CognitiveMirrorEngine {
 
   private _onResize() {
     if (!this.renderer) return;
-    const W2 = innerWidth, H2 = innerHeight, d2 = Math.min(devicePixelRatio, 2);
+    const W2 = innerWidth;
+    const H2 = innerHeight;
+    const d2 = Math.min(devicePixelRatio, 2);
     this.renderer.setSize(W2, H2);
     this.cam.aspect = W2 / H2;
     this.cam.updateProjectionMatrix();
@@ -735,8 +859,15 @@ export class CognitiveMirrorEngine {
     el.style.cssText = "position:absolute;top:0;left:0;display:block";
     mount.appendChild(el);
 
-    const W = innerWidth, H = innerHeight, dpr = Math.min(devicePixelRatio, 2);
-    this.renderer = new T.WebGLRenderer({ canvas: el, antialias: true, preserveDrawingBuffer: true, alpha: false });
+    const W = innerWidth;
+    const H = innerHeight;
+    const dpr = Math.min(devicePixelRatio, 2);
+    this.renderer = new T.WebGLRenderer({
+      canvas: el,
+      antialias: true,
+      preserveDrawingBuffer: true,
+      alpha: false,
+    });
     this.renderer.setSize(W, H);
     this.renderer.setPixelRatio(dpr);
     this.renderer.setClearColor(this.dark ? 0x0b0d12 : 0xffffff, 1);
@@ -756,7 +887,11 @@ export class CognitiveMirrorEngine {
   private _dotShader(extraFront: number) {
     const T = this.T;
     return new T.ShaderMaterial({
-      uniforms: { uTex: { value: this.dotTex() }, uScale: { value: this.uScale }, uDark: { value: this.dark ? 1 : 0 } },
+      uniforms: {
+        uTex: { value: this.dotTex() },
+        uScale: { value: this.uScale },
+        uDark: { value: this.dark ? 1 : 0 },
+      },
       vertexShader: `attribute float aSize; varying float vDepth; uniform float uScale;
         void main(){ vec4 mv=modelViewMatrix*vec4(position,1.0); float dist=-mv.z;
         vDepth=clamp((dist-3.2)/5.0,0.0,1.0); gl_PointSize=aSize*uScale/dist; gl_Position=projectionMatrix*mv; }`,
@@ -771,19 +906,25 @@ export class CognitiveMirrorEngine {
   }
 
   private _buildBackground() {
-    const T = this.T, R = this.R, r = this.rng(11);
+    const T = this.T;
+    const R = this.R;
+    const r = this.rng(11);
     const ico = new T.IcosahedronGeometry(R, 3);
-    const vp = ico.attributes.position, seen = new Set<string>();
+    const vp = ico.attributes.position;
+    const seen = new Set<string>();
     this.verts = [];
     for (let i = 0; i < vp.count; i++) {
-      const x = vp.getX(i), y = vp.getY(i), z = vp.getZ(i);
+      const x = vp.getX(i);
+      const y = vp.getY(i);
+      const z = vp.getZ(i);
       const key = `${x.toFixed(3)},${y.toFixed(3)},${z.toFixed(3)}`;
       if (!seen.has(key)) {
         seen.add(key);
         this.verts.push([x, y, z]);
       }
     }
-    const dpos: number[] = [], dsize: number[] = [];
+    const dpos: number[] = [];
+    const dsize: number[] = [];
     for (const v of this.verts) {
       dpos.push(v[0]!, v[1]!, v[2]!);
       dsize.push(r() < 0.08 ? 0.08 + r() * 0.06 : 0.026 + r() * 0.022);
@@ -810,11 +951,22 @@ export class CognitiveMirrorEngine {
   }
 
   private _buildHalo() {
-    const T = this.T, R = this.R, r = this.rng(91);
-    const N = 240, pos: number[] = [], sz: number[] = [], shade: number[] = [];
+    const T = this.T;
+    const R = this.R;
+    const r = this.rng(91);
+    const N = 240;
+    const pos: number[] = [];
+    const sz: number[] = [];
+    const shade: number[] = [];
     for (let i = 0; i < N; i++) {
-      const rad = R * (1.0 + r() * 0.3), th = r() * Math.PI * 2, ph = Math.acos(2 * r() - 1);
-      pos.push(rad * Math.sin(ph) * Math.cos(th), rad * Math.cos(ph), rad * Math.sin(ph) * Math.sin(th));
+      const rad = R * (1.0 + r() * 0.3);
+      const th = r() * Math.PI * 2;
+      const ph = Math.acos(2 * r() - 1);
+      pos.push(
+        rad * Math.sin(ph) * Math.cos(th),
+        rad * Math.cos(ph),
+        rad * Math.sin(ph) * Math.sin(th),
+      );
       sz.push(0.02 + r() * 0.045);
       shade.push(r() < 0.22 ? 0.0 : 0.45 + r() * 0.45);
     }
@@ -823,7 +975,11 @@ export class CognitiveMirrorEngine {
     g.setAttribute("aSize", new T.BufferAttribute(new Float32Array(sz), 1));
     g.setAttribute("aShade", new T.BufferAttribute(new Float32Array(shade), 1));
     this.haloMat = new T.ShaderMaterial({
-      uniforms: { uTex: { value: this.dotTex() }, uScale: { value: this.uScale }, uDark: { value: this.dark ? 1 : 0 } },
+      uniforms: {
+        uTex: { value: this.dotTex() },
+        uScale: { value: this.uScale },
+        uDark: { value: this.dark ? 1 : 0 },
+      },
       vertexShader: `attribute float aSize; attribute float aShade; varying float vD; uniform float uScale;
         void main(){ vec4 mv=modelViewMatrix*vec4(position,1.0); float dist=-mv.z;
         vD=clamp(max((dist-3.2)/5.0, aShade),0.0,1.0); gl_PointSize=aSize*uScale/dist; gl_Position=projectionMatrix*mv; }`,
@@ -838,9 +994,24 @@ export class CognitiveMirrorEngine {
 
     const soft = this.softTex();
     for (let i = 0; i < 16; i++) {
-      const rad = R * (1.02 + r() * 0.4), th = r() * Math.PI * 2, ph = Math.acos(2 * r() - 1);
-      const sp = new T.Sprite(new T.SpriteMaterial({ map: soft, color: 0x000000, transparent: true, opacity: 0.022 + r() * 0.04, depthTest: false, depthWrite: false }));
-      sp.position.set(rad * Math.sin(ph) * Math.cos(th), rad * Math.cos(ph), rad * Math.sin(ph) * Math.sin(th));
+      const rad = R * (1.02 + r() * 0.4);
+      const th = r() * Math.PI * 2;
+      const ph = Math.acos(2 * r() - 1);
+      const sp = new T.Sprite(
+        new T.SpriteMaterial({
+          map: soft,
+          color: 0x000000,
+          transparent: true,
+          opacity: 0.022 + r() * 0.04,
+          depthTest: false,
+          depthWrite: false,
+        }),
+      );
+      sp.position.set(
+        rad * Math.sin(ph) * Math.cos(th),
+        rad * Math.cos(ph),
+        rad * Math.sin(ph) * Math.sin(th),
+      );
       sp.scale.setScalar(0.35 + r() * 0.8);
       this.group.add(sp);
     }
@@ -848,28 +1019,38 @@ export class CognitiveMirrorEngine {
 
   /**
    * A connection rendered as a solid tube (linewidth is ignored in WebGL, so a
-   * tube gives real thickness). `radius` sets the thickness; `color` the tint.
+   * tube gives real thickness). `radius` sets the thickness; `role` the tint,
+   * which is re-resolved on a theme switch rather than baked in.
    * A gentle opacity breathe is applied per-frame in the render loop.
    */
-  private _makeArc(aId: string, bId: string, radius: number, color: string) {
-    const T = this.T, na = this.nmap[aId], nb = this.nmap[bId];
+  private _makeArc(aId: string, bId: string, radius: number, role: ArcRole) {
+    const T = this.T;
+    const na = this.nmap[aId];
+    const nb = this.nmap[bId];
     if (!na || !nb) return null;
     const mid = na.pos.clone().add(nb.pos).multiplyScalar(0.5);
     const bow = na.pos.distanceTo(nb.pos) * 0.32;
     mid.normalize().multiplyScalar(Math.min(this.R + bow, this.R + 1.0));
     const curve = new T.QuadraticBezierCurve3(na.pos.clone(), mid, nb.pos.clone());
     const geo = new T.TubeGeometry(curve, 40, radius, 8, false);
-    const mat = new T.MeshBasicMaterial({ color: new T.Color(color), transparent: true, opacity: 0.85, depthTest: false, depthWrite: false });
+    const mat = new T.MeshBasicMaterial({
+      color: new T.Color(this._arcColor(role)),
+      transparent: true,
+      opacity: 0.85,
+      depthTest: false,
+      depthWrite: false,
+    });
     const mesh = new T.Mesh(geo, mat);
     this.group.add(mesh);
-    return { mesh, mat, curve };
+    return { mesh, mat, curve, role };
   }
 
   // ── render loop ─────────────────────────────────────────────────────────────
   private _rafLoop() {
     this.rafId = requestAnimationFrame(() => this._rafLoop());
     if (!this.renderer) return;
-    const now = performance.now() / 1000, dt = Math.min(now - (this._lt || now), 0.05);
+    const now = performance.now() / 1000;
+    const dt = Math.min(now - (this._lt || now), 0.05);
     this._lt = now;
     const rot = this.reduceMotion ? 0.006 : 0.026;
     if (this.group) {
@@ -890,7 +1071,8 @@ export class CognitiveMirrorEngine {
       }
     }
     const focusing = this.state.queryState !== "idle" || this.dragging || this.explore;
-    const mx = focusing ? 0 : this.mouseX, my = focusing ? 0 : this.mouseY;
+    const mx = focusing ? 0 : this.mouseX;
+    const my = focusing ? 0 : this.mouseY;
     this.cam.position.x += (mx * 0.45 - this.cam.position.x) * 0.05;
     this.cam.position.y += (-my * 0.32 - this.cam.position.y) * 0.05;
     this.cam.position.z += (this.targetCamZ - this.cam.position.z) * 0.045;
@@ -921,8 +1103,8 @@ export class CognitiveMirrorEngine {
       const n = this.nmap[this.state.callout.id];
       if (el && n) {
         const v = n.pos.clone().applyQuaternion(this.group.quaternion).project(this.cam);
-        el.style.left = (v.x * 0.5 + 0.5) * window.innerWidth + "px";
-        el.style.top = (-v.y * 0.5 + 0.5) * window.innerHeight + "px";
+        el.style.left = `${(v.x * 0.5 + 0.5) * window.innerWidth}px`;
+        el.style.top = `${(-v.y * 0.5 + 0.5) * window.innerHeight}px`;
         el.style.opacity = v.z < 1 ? "1" : "0";
       }
     }
@@ -938,7 +1120,16 @@ export class CognitiveMirrorEngine {
 
   private _mkDot(op: number) {
     const T = this.T;
-    return new T.Sprite(new T.SpriteMaterial({ map: this.dotTex(), color: this._fg(), transparent: true, opacity: op || 1, depthTest: false, depthWrite: false }));
+    return new T.Sprite(
+      new T.SpriteMaterial({
+        map: this.dotTex(),
+        color: this._fg(),
+        transparent: true,
+        opacity: op || 1,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
   }
 
   private _tickPackets(now: number) {
@@ -962,7 +1153,8 @@ export class CognitiveMirrorEngine {
 
   private _tickFlashes(now: number) {
     for (const [id, f] of Object.entries(this.nodeFlashes)) {
-      const t = (now - (f as any).t0) / (f as any).dur, sp = this.sprites[id];
+      const t = (now - (f as any).t0) / (f as any).dur;
+      const sp = this.sprites[id];
       if (t >= 1) {
         if (sp) {
           sp.scale.setScalar(this.visited.has(id) ? 0.17 : 0.12);
@@ -1014,13 +1206,22 @@ export class CognitiveMirrorEngine {
   }
 
   private _launch(fromId: string, toId: string, curve?: any) {
-    const na = this.nmap[fromId], nb = this.nmap[toId];
+    const na = this.nmap[fromId];
+    const nb = this.nmap[toId];
     if (!na || !nb) return;
     const sp = this._mkDot(1);
     sp.position.copy(na.pos);
     sp.scale.setScalar(0.06);
     this.group.add(sp);
-    this.packets.push({ sp, a: na.pos.clone(), b: nb.pos.clone(), curve, t0: performance.now() / 1000, dur: curve ? 1.2 : 1.0, to: toId });
+    this.packets.push({
+      sp,
+      a: na.pos.clone(),
+      b: nb.pos.clone(),
+      curve,
+      t0: performance.now() / 1000,
+      dur: curve ? 1.2 : 1.0,
+      to: toId,
+    });
   }
 
   private _randIds(): string[] {
@@ -1030,7 +1231,8 @@ export class CognitiveMirrorEngine {
   private _idleTrace(now: number) {
     const ids = this._randIds();
     if (ids.length < 2) return;
-    const a = ids[Math.floor(Math.random() * ids.length)]!, b = ids[Math.floor(Math.random() * ids.length)]!;
+    const a = ids[Math.floor(Math.random() * ids.length)]!;
+    const b = ids[Math.floor(Math.random() * ids.length)]!;
     if (a !== b) {
       this._launch(a, b);
       this._flash(a, 1.2, now);
@@ -1041,19 +1243,31 @@ export class CognitiveMirrorEngine {
     const ids = this._randIds();
     if (ids.length < 2) return;
     const a = ids[Math.floor(Math.random() * ids.length)]!;
-    let b = ids[Math.floor(Math.random() * ids.length)]!, guard = 0;
+    let b = ids[Math.floor(Math.random() * ids.length)]!;
+    let guard = 0;
     while (b === a && guard++ < 8) b = ids[Math.floor(Math.random() * ids.length)]!;
-    const na = this.nmap[a], nb = this.nmap[b];
+    const na = this.nmap[a];
+    const nb = this.nmap[b];
     if (!na || !nb) return;
     const mid = na.pos.clone().add(nb.pos).multiplyScalar(0.5);
-    const p1 = this._mkDot(1), p2 = this._mkDot(1);
+    const p1 = this._mkDot(1);
+    const p2 = this._mkDot(1);
     p1.position.copy(na.pos);
     p2.position.copy(nb.pos);
     p1.scale.setScalar(0.1);
     p2.scale.setScalar(0.1);
     this.group.add(p1);
     this.group.add(p2);
-    const ring = new this.T.Sprite(new this.T.SpriteMaterial({ map: this.ringTex(), color: this._fg(), transparent: true, opacity: 0, depthTest: false, depthWrite: false }));
+    const ring = new this.T.Sprite(
+      new this.T.SpriteMaterial({
+        map: this.ringTex(),
+        color: this._fg(),
+        transparent: true,
+        opacity: 0,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
     ring.position.copy(mid);
     ring.scale.setScalar(0.1);
     this.group.add(ring);
@@ -1092,9 +1306,10 @@ export class CognitiveMirrorEngine {
     const ids = this._randIds();
     if (ids.length < 2) return;
     const a = ids[Math.floor(Math.random() * ids.length)]!;
-    let b = ids[Math.floor(Math.random() * ids.length)]!, guard = 0;
+    let b = ids[Math.floor(Math.random() * ids.length)]!;
+    let guard = 0;
     while (b === a && guard++ < 8) b = ids[Math.floor(Math.random() * ids.length)]!;
-    const arc = this._makeArc(a, b, 0.006, this.PURPLE);
+    const arc = this._makeArc(a, b, 0.007, "relates");
     if (!arc) return;
     arc.mat.opacity = 0;
     this._flash(a, 1.8, now);
@@ -1103,7 +1318,8 @@ export class CognitiveMirrorEngine {
       t0: now,
       dur: 5.0,
       update: (t: number) => {
-        arc.mat.opacity = t < 0.16 ? (t / 0.16) * 0.85 : t > 0.7 ? 0.85 * (1 - (t - 0.7) / 0.3) : 0.85;
+        arc.mat.opacity =
+          t < 0.16 ? (t / 0.16) * 0.85 : t > 0.7 ? 0.85 * (1 - (t - 0.7) / 0.3) : 0.85;
       },
       cleanup: () => {
         this.group.remove(arc.mesh);
@@ -1123,7 +1339,16 @@ export class CognitiveMirrorEngine {
     const query = q || "What connects my thinking across domains?";
     this._resetTraversal();
     this.lastQuery = query;
-    this.setState({ queryState: "querying", showAnswer: false, noMatch: false, queryInput: query, traverseStage: "searching your graph", traceLines: [], callout: null, sources: [] });
+    this.setState({
+      queryState: "querying",
+      showAnswer: false,
+      noMatch: false,
+      queryInput: query,
+      traverseStage: "searching your graph",
+      traceLines: [],
+      callout: null,
+      sources: [],
+    });
     this.targetCamZ = this.reduceMotion ? 5.6 : 4.3;
     const mount = document.getElementById("cm-canvas-mount");
     if (mount) mount.style.filter = "blur(0px)";
@@ -1138,7 +1363,11 @@ export class CognitiveMirrorEngine {
 
     let results: SearchHit[] = [];
     try {
-      const res = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query }) });
+      const res = await fetch("/api/search", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
       results = ((await res.json()) as { results: SearchHit[] }).results ?? [];
     } catch {
       /* offline */
@@ -1177,7 +1406,7 @@ export class CognitiveMirrorEngine {
     };
     hits.forEach((hit, i) => {
       at(i === 0 ? 360 : 660, () => {
-        if (i > 0) this._hop(hits[i - 1]!.id, hit.id, this.CYAN);
+        if (i > 0) this._hop(hits[i - 1]!.id, hit.id, "query");
         this._focusNode(hit.id);
         this._visitLive(hit, i);
         this.setState({ traverseStage: `reading · ${hit.type}` });
@@ -1198,25 +1427,58 @@ export class CognitiveMirrorEngine {
     const now = performance.now() / 1000;
     this._flash(hit.id, 2.6, now);
     this.visited.add(hit.id);
-    this.setState({ callout: { id: hit.id, tag: hit.title, type: hit.type.toUpperCase(), line: hit.summary.slice(0, 120) } });
-    const glow = new this.T.Sprite(new this.T.SpriteMaterial({ map: this.glowTexW(), color: new this.T.Color(this.CYAN), transparent: true, opacity: 0.5, depthTest: false, depthWrite: false }));
+    this.setState({
+      callout: {
+        id: hit.id,
+        tag: hit.title,
+        type: hit.type.toUpperCase(),
+        line: hit.summary.slice(0, 120),
+      },
+    });
+    const glow = new this.T.Sprite(
+      new this.T.SpriteMaterial({
+        map: this.glowTexW(),
+        color: new this.T.Color(this.CYAN),
+        transparent: true,
+        opacity: 0.5,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
     glow.position.copy(this.nmap[hit.id]!.pos);
     glow.scale.setScalar(0.34);
     this.group.add(glow);
     this.trail.push(glow);
     this.setState((s) => ({
-      traceLines: [...s.traceLines, { n: String(i + 1).padStart(2, "0"), label: hit.title.toUpperCase(), detail: hit.summary.slice(0, 110), accent: this.CYAN }],
+      traceLines: [
+        ...s.traceLines,
+        {
+          n: String(i + 1).padStart(2, "0"),
+          label: hit.title.toUpperCase(),
+          detail: hit.summary.slice(0, 110),
+          accent: this.CYAN,
+        },
+      ],
     }));
   }
 
   private _revealAnswerLive(hits: SearchHit[], instant: boolean) {
     const lead = hits[0]!;
-    const others = hits.slice(1, 4).map((h) => h.title).join(", ");
-    const full =
-      `Closest in your graph: ${lead.title}. ${lead.summary}` +
-      (others ? `\n\nIt connects to ${others}.` : "");
+    const others = hits
+      .slice(1, 4)
+      .map((h) => h.title)
+      .join(", ");
+    const full = `Closest in your graph: ${lead.title}. ${lead.summary}${others ? `\n\nIt connects to ${others}.` : ""}`;
     this.setState((s) => ({
-      traceLines: [...s.traceLines, { n: String(hits.length + 1).padStart(2, "0"), label: "RETRIEVED FROM YOUR GRAPH", detail: "", accent: this.PURPLE }],
+      traceLines: [
+        ...s.traceLines,
+        {
+          n: String(hits.length + 1).padStart(2, "0"),
+          label: "RETRIEVED FROM YOUR GRAPH",
+          detail: "",
+          accent: this._gold(),
+        },
+      ],
       queryState: "answered",
       showAnswer: true,
       noMatch: false,
@@ -1244,36 +1506,83 @@ export class CognitiveMirrorEngine {
   }
 
   private _mkPacket(hex: string) {
-    const T = this.T, g = new T.Group();
-    const halo = new T.Sprite(new T.SpriteMaterial({ map: this.glowTexW(), color: new T.Color(hex), transparent: true, opacity: 0.6, depthTest: false, depthWrite: false }));
+    const T = this.T;
+    const g = new T.Group();
+    const halo = new T.Sprite(
+      new T.SpriteMaterial({
+        map: this.glowTexW(),
+        color: new T.Color(hex),
+        transparent: true,
+        opacity: 0.6,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
     halo.scale.setScalar(0.16);
-    const core = new T.Sprite(new T.SpriteMaterial({ map: this.discTex(), color: new T.Color(hex), transparent: true, opacity: 1, depthTest: false, depthWrite: false }));
+    const core = new T.Sprite(
+      new T.SpriteMaterial({
+        map: this.discTex(),
+        color: new T.Color(hex),
+        transparent: true,
+        opacity: 1,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
     core.scale.setScalar(0.06);
     g.add(halo);
     g.add(core);
     return g;
   }
 
-  private _hop(fromId: string, toId: string, hex: string) {
-    const na = this.nmap[fromId], nb = this.nmap[toId];
+  /**
+   * A one-off travelling arc: a real graph write (`relates`/`contradicts`) or a
+   * step in a live search traversal (`query`). Writes get the heavier treatment
+   * — a fatter, higher-bowed tube and a gold packet — because they're the rarer,
+   * more significant event.
+   */
+  private _hop(fromId: string, toId: string, role: ArcRole) {
+    const na = this.nmap[fromId];
+    const nb = this.nmap[toId];
     if (!na || !nb) return;
     const now = performance.now() / 1000;
-    const gold = hex === this.PURPLE || hex === this.CRIMSON;
+    const major = role !== "query";
     const mid = na.pos.clone().add(nb.pos).multiplyScalar(0.5);
-    const bow = na.pos.distanceTo(nb.pos) * (gold ? 0.34 : 0.16);
+    const bow = na.pos.distanceTo(nb.pos) * (major ? 0.34 : 0.16);
     mid.normalize().multiplyScalar(this.R + bow);
     const curve = new this.T.QuadraticBezierCurve3(na.pos.clone(), mid, nb.pos.clone());
-    const geo = new this.T.TubeGeometry(curve, gold ? 56 : 42, gold ? 0.013 : 0.008, 6, false);
-    const mat = new this.T.MeshBasicMaterial({ color: new this.T.Color(hex), transparent: true, opacity: 0, depthTest: false, depthWrite: false });
+    const geo = new this.T.TubeGeometry(curve, major ? 56 : 42, major ? 0.013 : 0.008, 6, false);
+    const mat = new this.T.MeshBasicMaterial({
+      color: new this.T.Color(this._arcColor(role)),
+      transparent: true,
+      opacity: 0,
+      depthTest: false,
+      depthWrite: false,
+    });
     const mesh = new this.T.Mesh(geo, mat);
     this.group.add(mesh);
     this.trail.push(mesh);
-    this.transients.push({ t0: now, dur: 0.5, update: (tt: number) => { mat.opacity = tt * (gold ? 0.92 : 0.7); }, cleanup: () => { mat.opacity = gold ? 0.92 : 0.7; } });
-    const sp = this._mkPacket(gold ? "#D8A63E" : "#19A6CE");
+    this.transients.push({
+      t0: now,
+      dur: 0.5,
+      update: (tt: number) => {
+        mat.opacity = tt * (major ? 0.92 : 0.7);
+      },
+      cleanup: () => {
+        mat.opacity = major ? 0.92 : 0.7;
+      },
+    });
+    const sp = this._mkPacket(major ? this.GOLD_DARK : "#19A6CE");
     sp.position.copy(na.pos);
     sp.scale.setScalar(0.6);
     this.group.add(sp);
-    this.packets.push({ sp, curve, t0: now, dur: (gold ? 1.0 : 0.74) / (this.speed || 1), group: true });
+    this.packets.push({
+      sp,
+      curve,
+      t0: now,
+      dur: (major ? 1.0 : 0.74) / (this.speed || 1),
+      group: true,
+    });
   }
 
   private _converge(ids: string[]) {
@@ -1282,14 +1591,33 @@ export class CognitiveMirrorEngine {
     this.setState({ callout: null });
     const present = ids.filter((id) => this.nmap[id]);
     if (present.length < 2) return;
-    const a = this.nmap[present[0]!]!.pos, b = this.nmap[present[present.length - 1]!]!.pos;
+    const a = this.nmap[present[0]!]!.pos;
+    const b = this.nmap[present[present.length - 1]!]!.pos;
     const mid = a.clone().add(b).multiplyScalar(0.5);
-    const ring = new this.T.Sprite(new this.T.SpriteMaterial({ map: this.ringTex(), color: new this.T.Color("#D8A63E"), transparent: true, opacity: 0.95, depthTest: false, depthWrite: false }));
+    const ring = new this.T.Sprite(
+      new this.T.SpriteMaterial({
+        map: this.ringTex(),
+        color: new this.T.Color("#D8A63E"),
+        transparent: true,
+        opacity: 0.95,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
     ring.position.copy(mid);
     ring.scale.setScalar(0.14);
     this.group.add(ring);
     this.trail.push(ring);
-    const glow = new this.T.Sprite(new this.T.SpriteMaterial({ map: this.glowTexW(), color: new this.T.Color("#D8A63E"), transparent: true, opacity: 0.7, depthTest: false, depthWrite: false }));
+    const glow = new this.T.Sprite(
+      new this.T.SpriteMaterial({
+        map: this.glowTexW(),
+        color: new this.T.Color("#D8A63E"),
+        transparent: true,
+        opacity: 0.7,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
     glow.position.copy(mid);
     glow.scale.setScalar(0.2);
     this.group.add(glow);
@@ -1338,8 +1666,8 @@ export class CognitiveMirrorEngine {
     this._timers = [];
     if (this.trail) {
       for (const m of this.trail) {
-        this.group && this.group.remove(m);
-        this.scene && this.scene.remove(m);
+        this.group?.remove(m);
+        this.scene?.remove(m);
       }
     }
     this.trail = [];

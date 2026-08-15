@@ -19,7 +19,11 @@ export async function GET(req: Request) {
     { nodes: [] },
   );
   const items = nodes
-    .map((n) => ({ id: n.props.id ?? "", title: n.props.title ?? "", summary: n.props.summary ?? "" }))
+    .map((n) => ({
+      id: n.props.id ?? "",
+      title: n.props.title ?? "",
+      summary: n.props.summary ?? "",
+    }))
     .filter((n) => n.id)
     .sort((a, b) => a.title.localeCompare(b.title));
   return Response.json({ nodes: items });

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { GraphOp } from "@cm/shared";
-import { createGraphClient } from "@cm/graph-client";
 import { embed } from "@cm/embeddings";
+import { createGraphClient } from "@cm/graph-client";
+import type { GraphOp } from "@cm/shared";
 
 /**
  * Spine smoke test — exercises the real write/read code paths the daemon uses
@@ -22,7 +22,13 @@ const ops: GraphOp[] = [
   { kind: "setSummaryEmbedding", id: sourceId, embedding: summaryVec },
   {
     kind: "upsertChunk",
-    chunk: { id: `${sourceId}:0`, sourceNodeId: sourceId, text: summary, ordinal: 0, embedding: chunkVec },
+    chunk: {
+      id: `${sourceId}:0`,
+      sourceNodeId: sourceId,
+      text: summary,
+      ordinal: 0,
+      embedding: chunkVec,
+    },
   },
 ];
 const exec = await g.execute(ops, "verify spine");

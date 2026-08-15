@@ -1,5 +1,5 @@
-import { childLogger, type EnrichPayload } from "@cm/shared";
 import type { GraphClient } from "@cm/graph-client";
+import { type EnrichPayload, childLogger } from "@cm/shared";
 import { researchWithWebSearch } from "./anthropic.js";
 import { enrichJob } from "./enrich.js";
 
@@ -36,7 +36,15 @@ export async function researchTopic(graph: GraphClient, topic: string): Promise<
     meta: { citations },
   };
   const outcome = await enrichJob(graph, payload);
-  log.info({ topic, sourceId: outcome.sourceId, concepts: outcome.conceptIds.length, citations: citations.length }, "research notes written");
+  log.info(
+    {
+      topic,
+      sourceId: outcome.sourceId,
+      concepts: outcome.conceptIds.length,
+      citations: citations.length,
+    },
+    "research notes written",
+  );
 
   return {
     ok: true,

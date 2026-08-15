@@ -16,12 +16,14 @@ document.getElementById("capture").addEventListener("click", async () => {
     return;
   }
 
-  const [{ result } = {}] = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    files: ["scrape.js"],
-  }).then(() =>
-    chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => cmScrapeYouTube() }),
-  );
+  const [{ result } = {}] = await chrome.scripting
+    .executeScript({
+      target: { tabId: tab.id },
+      files: ["scrape.js"],
+    })
+    .then(() =>
+      chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => cmScrapeYouTube() }),
+    );
 
   if (!result?.title) {
     statusEl.textContent = "Could not read the video.";
@@ -38,7 +40,7 @@ document.getElementById("capture").addEventListener("click", async () => {
       body: JSON.stringify({
         kind: "youtube",
         title: result.title,
-        text: `${result.channel ? result.channel + "\n\n" : ""}${result.text}`,
+        text: `${result.channel ? `${result.channel}\n\n` : ""}${result.text}`,
         url: result.url,
         source: `youtube:${result.channel || "unknown"}`,
       }),

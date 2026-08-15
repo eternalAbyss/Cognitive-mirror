@@ -8,8 +8,7 @@
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@cm/shared": "workspace:*"

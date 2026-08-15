@@ -1,0 +1,24 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Cognitive Mirror</title>
+  <!--
+    The mark is the app's own knowledge sphere: a wireframe ring crossed by a
+    gold cross-domain connection arc, bowing out past the surface exactly as the
+    real arcs do in the WebGL scene.
+
+    Colours are picked to survive BOTH light and dark browser chrome, since a
+    favicon gets no theme signal: the ring is a mid grey that reads either way,
+    and the arc is the dark-theme gold (#D8A63E), which stays legible on white at
+    this stroke weight even though it is too light for large fills there.
+  -->
+  <circle cx="32" cy="32" r="22" stroke="#8A8A8A" stroke-width="3.25" />
+
+  <!-- Three node dots sitting on the sphere. -->
+  <circle cx="32" cy="10" r="2.75" fill="#8A8A8A" />
+  <circle cx="13.3" cy="43.6" r="2.75" fill="#8A8A8A" />
+  <circle cx="50.7" cy="43.6" r="2.75" fill="#8A8A8A" />
+
+  <!-- The gold cross-domain arc, bowing outside the sphere. -->
+  <path d="M11.33 24.48 Q18.6 3.1 39.52 11.33" stroke="#D8A63E" stroke-width="5" stroke-linecap="round" />
+  <circle cx="11.33" cy="24.48" r="4.25" fill="#D8A63E" />
+  <circle cx="39.52" cy="11.33" r="4.25" fill="#D8A63E" />
+</svg>

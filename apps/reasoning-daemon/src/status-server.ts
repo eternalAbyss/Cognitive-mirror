@@ -1,9 +1,9 @@
+import type { GraphClient } from "@cm/graph-client";
+import type { JobQueue } from "@cm/queue";
+import { childLogger, loadConfig } from "@cm/shared";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { z } from "zod";
-import { loadConfig, childLogger } from "@cm/shared";
-import type { JobQueue } from "@cm/queue";
-import type { GraphClient } from "@cm/graph-client";
 import { budget } from "./budget.js";
 import { researchTopic } from "./research.js";
 
@@ -19,9 +19,7 @@ export function startStatusServer(queue: JobQueue, graph: GraphClient): () => vo
   const cfg = loadConfig();
   const app = new Hono();
   app.get("/health", (c) => c.json({ ok: true, service: "reasoning-daemon" }));
-  app.get("/status", (c) =>
-    c.json({ budget: budget.snapshot(), queue: queue.stats() }),
-  );
+  app.get("/status", (c) => c.json({ budget: budget.snapshot(), queue: queue.stats() }));
   app.post("/research", async (c) => {
     const { topic } = z.object({ topic: z.string().min(1) }).parse(await c.req.json());
     return c.json(await researchTopic(graph, topic));

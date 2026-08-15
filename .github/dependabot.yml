@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR per ecosystem rather than per package — these move together and
+      # reviewing them separately is noise.
+      types:
+        patterns: ["@types/*"]
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom", "next"]
+      dev-tooling:
+        patterns: ["@biomejs/*", "vitest", "@vitest/*", "tsup", "tsx", "typescript"]
+    ignore:
+      # Pinned deliberately: the vector index is built for a fixed embedding
+      # dimension, and a major FalkorDB bump needs a migration, not a merge.
+      - dependency-name: falkordb
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

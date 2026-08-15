@@ -13,6 +13,8 @@ interface ApprovalView {
 
 /** Pending cleanup approvals the maintenance engine is waiting on (design §9). */
 export async function GET() {
-  const data = await getJson<{ approvals: ApprovalView[] }>(`${GRAPH_CORE}/approvals`, { approvals: [] });
+  const data = await getJson<{ approvals: ApprovalView[] }>(`${GRAPH_CORE}/approvals`, {
+    approvals: [],
+  });
   return Response.json(data);
 }

@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { loadConfig, childLogger, type GraphOp } from "@cm/shared";
-import type { GraphClient } from "@cm/graph-client";
 import { embed } from "@cm/embeddings";
+import type { GraphClient } from "@cm/graph-client";
+import { type GraphOp, childLogger, loadConfig } from "@cm/shared";
 import { synthesizeBrief } from "./anthropic.js";
 import { fetchArxiv } from "./sources/arxiv.js";
-import { fetchRss } from "./sources/rss.js";
 import { fetchGithubTrending } from "./sources/github-trending.js";
+import { fetchRss } from "./sources/rss.js";
 import type { BriefCandidate } from "./sources/types.js";
 
 const log = childLogger("daemon:brief");
@@ -55,7 +55,12 @@ export async function runDailyBrief(graph: GraphClient): Promise<BriefResult> {
   if (top.length === 0) return { candidates: candidates.length, kept: 0, observations: 0 };
 
   const observations = await synthesizeBrief(
-    top.map((s) => ({ title: s.cand.title, text: s.cand.text, nearestConcept: s.nearestConcept, url: s.cand.url })),
+    top.map((s) => ({
+      title: s.cand.title,
+      text: s.cand.text,
+      nearestConcept: s.nearestConcept,
+      url: s.cand.url,
+    })),
     cfg.BRIEF_MAX_OBSERVATIONS,
   );
   if (observations.length === 0) {
@@ -69,13 +74,24 @@ export async function runDailyBrief(graph: GraphClient): Promise<BriefResult> {
     ops.push({
       kind: "createNode",
       id,
-      node: { type: "WorldEvent", title: o.title, summary: o.observation, asOf: today, metadata: { kind: "world_brief" } },
+      node: {
+        type: "WorldEvent",
+        title: o.title,
+        summary: o.observation,
+        asOf: today,
+        metadata: { kind: "world_brief" },
+      },
     });
     ops.push({ kind: "setSummaryEmbedding", id, embedding: await embed(o.observation) });
   }
   const res = await graph.execute(ops, `daily brief ${today}`);
   log.info({ observations: observations.length, opLogId: res.opLogId }, "daily brief written");
-  return { candidates: candidates.length, kept: scored.length, observations: observations.length, opLogId: res.opLogId };
+  return {
+    candidates: candidates.length,
+    kept: scored.length,
+    observations: observations.length,
+    opLogId: res.opLogId,
+  };
 }
 
 /** Nearest existing Concept/Interest node to an embedding (min cosine distance). */
@@ -97,7 +113,8 @@ async function nearest(
   const h = hits[0]!;
   // Weight by recent traversal (design §12): a concept read in the last week is
   // "hotter", so shrink its distance to make related world signal more likely to surface.
-  const lastReadAt = typeof h.props.lastReadAt === "string" ? Date.parse(h.props.lastReadAt) : NaN;
+  const lastReadAt =
+    typeof h.props.lastReadAt === "string" ? Date.parse(h.props.lastReadAt) : Number.NaN;
   const recent = Number.isFinite(lastReadAt) && Date.now() - lastReadAt < 7 * 86_400_000;
   const distance = recent ? h.score * 0.85 : h.score;
   return { distance, title: String(h.props.title ?? "") };

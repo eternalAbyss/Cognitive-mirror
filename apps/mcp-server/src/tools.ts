@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { NODE_TYPES, EDGE_TYPES, loadConfig, type GraphOp } from "@cm/shared";
-import type { GraphClient } from "@cm/graph-client";
 import { embed } from "@cm/embeddings";
+import type { GraphClient } from "@cm/graph-client";
+import { EDGE_TYPES, type GraphOp, NODE_TYPES, loadConfig } from "@cm/shared";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import { emit } from "./events.js";
 
 const json = (data: unknown) => ({
@@ -227,7 +227,18 @@ export function registerTools(server: McpServer, graph: GraphClient): void {
           conclusions: conclusions ?? [],
         };
         await graph.execute(
-          [{ kind: "createNode", id, node: { type: "Conversation", title: delta.slice(0, 80), summary: delta, metadata: meta } }],
+          [
+            {
+              kind: "createNode",
+              id,
+              node: {
+                type: "Conversation",
+                title: delta.slice(0, 80),
+                summary: delta,
+                metadata: meta,
+              },
+            },
+          ],
           "checkpoint_conversation: open",
         );
         emit("write", { op: "checkpoint_conversation", id, opened: true });
@@ -244,10 +255,20 @@ export function registerTools(server: McpServer, graph: GraphClient): void {
         conclusions: mergeUnique(prevMeta.conclusions, conclusions),
       };
       await graph.execute(
-        [{ kind: "updateNode", id: conversationId, patch: { summary: `${prevSummary}\n\n— ${delta}`, metadata: meta } }],
+        [
+          {
+            kind: "updateNode",
+            id: conversationId,
+            patch: { summary: `${prevSummary}\n\n— ${delta}`, metadata: meta },
+          },
+        ],
         "checkpoint_conversation: append",
       );
-      emit("write", { op: "checkpoint_conversation", id: conversationId, checkpoints: meta.checkpoints });
+      emit("write", {
+        op: "checkpoint_conversation",
+        id: conversationId,
+        checkpoints: meta.checkpoints,
+      });
       return json({ conversationId, checkpoints: meta.checkpoints });
     },
   );
@@ -255,7 +276,8 @@ export function registerTools(server: McpServer, graph: GraphClient): void {
   server.registerTool(
     "close_conversation",
     {
-      description: "Finalise a conversation at session end. Computes a summary embedding so the conversation becomes a merge/brief candidate.",
+      description:
+        "Finalise a conversation at session end. Computes a summary embedding so the conversation becomes a merge/brief candidate.",
       inputSchema: {
         conversationId: z.string(),
         status: z.enum(["closed", "parked"]).default("closed"),
@@ -268,7 +290,12 @@ export function registerTools(server: McpServer, graph: GraphClient): void {
       const ops: GraphOp[] = [
         { kind: "updateNode", id: conversationId, patch: { metadata: { ...prevMeta, status } } },
       ];
-      if (summary) ops.push({ kind: "setSummaryEmbedding", id: conversationId, embedding: await embed(summary) });
+      if (summary)
+        ops.push({
+          kind: "setSummaryEmbedding",
+          id: conversationId,
+          embedding: await embed(summary),
+        });
       await graph.execute(ops, `close_conversation: ${status}`);
       emit("write", { op: "close_conversation", id: conversationId, status });
       return json({ conversationId, status });

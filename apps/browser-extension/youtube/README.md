@@ -1,6 +1,6 @@
 # YouTube capture — browser extension (MV3)
 
-> 📖 Part of Cognitive-mirror — see the [full documentation](../../../documentation.md) for
+> 📖 Part of Cognitive-mirror — see the [full documentation](../../../docs/architecture.md) for
 > architecture, setup, the API endpoints, and how this fits the whole system.
 
 Sends the current YouTube video (title, channel, description, and the transcript if the transcript

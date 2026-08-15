@@ -1,36 +1,52 @@
 import { existsSync } from "node:fs";
-import { dirname, join, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
 import { getSecret } from "./keychain.js";
 
 /**
- * Load the nearest .env walking up from cwd (apps run with their own package dir
- * as cwd) and return the directory it was found in — the repo root. Relative
- * paths in config (e.g. the queue DB) are resolved against this so every service
- * points at the SAME file regardless of its cwd.
+ * The directory that holds this installation's `.env` and `.data/`.
+ *
+ * Two ways to run, so two ways to find it:
+ *
+ *  - **Installed** (`npx cognitive-mirror`): `CM_HOME` is set by the CLI and
+ *    wins outright. Without it, state would land somewhere arbitrary inside
+ *    `node_modules`, because there is no checkout to walk up to.
+ *  - **From a clone**: walk up from cwd looking for a `.env`, falling back to
+ *    the workspace root. Apps run with their own package dir as cwd, so this is
+ *    what makes every service agree on one queue DB.
+ *
+ * Relative paths in config (the queue DB, budget state) resolve against the
+ * result, so all five services point at the same files either way.
  */
-function loadEnvFile(): string {
+export function resolveHomeDir(): string {
+  const explicit = process.env.CM_HOME;
+  if (explicit) return isAbsolute(explicit) ? explicit : resolve(process.cwd(), explicit);
+
   let dir = process.cwd();
   for (let i = 0; i < 8; i++) {
-    const candidate = join(dir, ".env");
-    if (existsSync(candidate)) {
-      loadDotenv({ path: candidate });
-      return dir;
-    }
+    if (existsSync(join(dir, ".env"))) return dir;
     // Anchor on the workspace root even if no .env exists.
     if (existsSync(join(dir, "pnpm-workspace.yaml"))) return dir;
     const parent = dirname(dir);
-    if (parent === dir) return process.cwd();
+    if (parent === dir) break;
     dir = parent;
   }
   return process.cwd();
 }
 
+/** Resolve the home dir and load its `.env` into process.env. */
+function loadEnvFile(): string {
+  const dir = resolveHomeDir();
+  const candidate = join(dir, ".env");
+  if (existsSync(candidate)) loadDotenv({ path: candidate });
+  return dir;
+}
+
 /**
  * Centralised, zod-validated configuration. Reads from process.env, with
- * secrets (Anthropic key, GitHub token) resolved via the Keychain helper so the
- * Mac Mini deployment can keep them out of plaintext env files (design §4).
+ * secrets (Anthropic key, GitHub token) resolved via the macOS Keychain helper
+ * when present, so they need not sit in a plaintext env file.
  */
 const num = (def: number) =>
   z
@@ -38,6 +54,15 @@ const num = (def: number) =>
     .optional()
     .transform((v) => (v === undefined || v === "" ? def : Number(v)))
     .pipe(z.number());
+
+/** Env booleans: "true"/"1"/"yes" (any case) are true; anything else is false. */
+const bool = (def: boolean): z.ZodType<boolean, z.ZodTypeDef, string | undefined> =>
+  z
+    .string()
+    .optional()
+    .transform((v) =>
+      v === undefined || v === "" ? def : ["true", "1", "yes"].includes(v.trim().toLowerCase()),
+    );
 
 const EnvSchema = z.object({
   // Secrets (may come from Keychain; can be empty in scaffolding/tests).
@@ -81,8 +106,16 @@ const EnvSchema = z.object({
   // Budget breaker state (persisted across restarts, design §6)
   BUDGET_STATE_PATH: z.string().default("./.data/budget.json"),
 
-  // Ingestion webhook auth (empty = allow, for local dev)
+  // Ingestion webhook auth. With no token the webhook is REFUSED, not opened —
+  // ALLOW_ANONYMOUS_INGEST=true is the explicit local-dev opt-out.
   INGEST_TOKEN: z.string().default(""),
+  ALLOW_ANONYMOUS_INGEST: bool(false),
+
+  // Off-device access. Setting MCP_PUBLIC_URL turns OAuth on and makes it
+  // MANDATORY — the MCP server refuses to boot without a passphrase hash,
+  // rather than quietly publishing an unauthenticated write API.
+  MCP_PUBLIC_URL: z.string().default(""),
+  MCP_AUTH_PASSPHRASE_HASH: z.string().default(""),
 
   // Ntfy health/alert notifications (empty topic = disabled)
   NTFY_URL: z.string().default("https://ntfy.sh"),
@@ -106,14 +139,63 @@ const EnvSchema = z.object({
   ARCHIVE_INACTIVITY_DAYS: num(30),
   CONCEPT_TARGET_MIN: num(300),
   CONCEPT_TARGET_MAX: num(600),
+
+  // Token prices, as JSON: {"model":{"in":N,"out":N}} in USD per million tokens.
+  // Merged over DEFAULT_MODEL_PRICES below, so this only needs the models you
+  // changed. See the comment on DEFAULT_MODEL_PRICES for why it isn't empty.
+  MODEL_PRICES: z.string().default(""),
 });
+
+export interface ModelPrice {
+  /** USD per 1M input tokens. */
+  in: number;
+  /** USD per 1M output tokens. */
+  out: number;
+}
+
+/**
+ * Built-in prices for the models this project ships with, USD per million
+ * tokens (Anthropic list prices as of 2026-08).
+ *
+ * These have defaults on purpose. Prices used to come only from MODEL_PRICES,
+ * which was never in this schema and was commented out of `.env.example` — so
+ * the table was always empty, every call was costed at $0, and the daily budget
+ * breaker could not trip no matter what DAILY_BUDGET_USD said. A safety limit
+ * that silently does nothing is worse than no limit, because you stop watching.
+ *
+ * Prices do drift. `budget.ts` warns once per unpriced model so a model swap
+ * can't quietly re-open the same hole.
+ */
+export const DEFAULT_MODEL_PRICES: Record<string, ModelPrice> = {
+  "claude-haiku-4-5": { in: 1, out: 5 },
+  "claude-haiku-4-5-20251001": { in: 1, out: 5 },
+  "claude-sonnet-4-6": { in: 3, out: 15 },
+  "claude-sonnet-5": { in: 3, out: 15 },
+  "claude-opus-4-8": { in: 5, out: 25 },
+  "claude-opus-5": { in: 5, out: 25 },
+};
 
 export type AppConfig = z.infer<typeof EnvSchema> & {
   graphCoreUrl: string;
   repoList: string[];
   arxivCategories: string[];
   rssFeeds: string[];
+  /** DEFAULT_MODEL_PRICES with any MODEL_PRICES overrides applied. */
+  modelPrices: Record<string, ModelPrice>;
 };
+
+/** MODEL_PRICES overrides layered onto the built-in table. Bad JSON is ignored. */
+function resolveModelPrices(raw: string): Record<string, ModelPrice> {
+  if (!raw.trim()) return { ...DEFAULT_MODEL_PRICES };
+  try {
+    const overrides = JSON.parse(raw) as Record<string, ModelPrice>;
+    return { ...DEFAULT_MODEL_PRICES, ...overrides };
+  } catch {
+    // Can't use the logger here — it imports config, so this would cycle.
+    console.warn("[config] MODEL_PRICES is not valid JSON; using built-in prices");
+    return { ...DEFAULT_MODEL_PRICES };
+  }
+}
 
 let cached: AppConfig | undefined;
 
@@ -146,6 +228,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     repoList: csv(parsed.GITHUB_REPOS),
     arxivCategories: csv(parsed.ARXIV_CATEGORIES),
     rssFeeds: csv(parsed.RSS_FEEDS),
+    modelPrices: resolveModelPrices(parsed.MODEL_PRICES),
   };
   return cached;
 }

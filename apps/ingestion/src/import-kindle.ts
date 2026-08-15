@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { loadConfig, childLogger } from "@cm/shared";
+import { childLogger, loadConfig } from "@cm/shared";
 import { parseClippings } from "./kindle-parse.js";
 
 /**

@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch makes the in-flight run redundant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22 is the floor (node:sqlite); 24 is current. Both are tested because
+        # node:sqlite is new enough that its API has moved between releases.
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+  build:
+    name: build the published package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Builds every service bundle and the Next standalone output. This is the
+      # step that catches a missing dependency declaration: the build asserts
+      # that everything the runtime imports is declared in apps/cli/package.json,
+      # which pnpm's workspace links would otherwise hide until publish.
+      - name: Build
+        run: pnpm --filter cognitive-mirror build
+
+      - name: Pack
+        run: pnpm --filter cognitive-mirror exec npm pack --pack-destination /tmp
+
+      # Installing the tarball outside the repo is the only way to catch
+      # workspace-only assumptions — every packaging bug in this project's
+      # history was invisible until this step.
+      - name: Install the tarball into a clean directory
+        run: |
+          mkdir -p /tmp/install-test && cd /tmp/install-test
+          npm init -y >/dev/null
+          npm install /tmp/cognitive-mirror-*.tgz
+
+      - name: Smoke-test the installed CLI
+        run: |
+          cd /tmp/install-test
+          ./node_modules/.bin/cognitive-mirror version
+          ./node_modules/.bin/cognitive-mirror help
+          # doctor exits non-zero when something is missing (Docker isn't
+          # available here), so assert on its output rather than its status.
+          ./node_modules/.bin/cognitive-mirror doctor 2>&1 | tee doctor.txt || true
+          grep -q "node >= 22" doctor.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cognitive-mirror-tarball
+          path: /tmp/cognitive-mirror-*.tgz
+          retention-days: 7

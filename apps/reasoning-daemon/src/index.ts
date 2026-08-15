@@ -1,11 +1,11 @@
-import { loadConfig, childLogger } from "@cm/shared";
-import { JobQueue } from "@cm/queue";
 import { createGraphClient } from "@cm/graph-client";
-import { startWorker } from "./worker.js";
-import { startScheduler } from "./scheduler.js";
-import { startHealthProbe } from "./health.js";
-import { startStatusServer } from "./status-server.js";
+import { JobQueue } from "@cm/queue";
+import { childLogger, loadConfig } from "@cm/shared";
 import { ensureEmbedModel } from "./embeddings.js";
+import { startHealthProbe } from "./health.js";
+import { startScheduler } from "./scheduler.js";
+import { startStatusServer } from "./status-server.js";
+import { startWorker } from "./worker.js";
 
 const log = childLogger("reasoning-daemon");
 

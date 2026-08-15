@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { JobQueue } from "../src/index.js";
 
 function freshQueue(): JobQueue {
@@ -53,6 +53,53 @@ describe("JobQueue", () => {
 
     q.fail(j2!.id, "boom again"); // 2nd attempt hits the cap
     expect(q.stats().failed).toBe(1);
+    q.close();
+  });
+});
+
+describe("JobQueue lease recovery", () => {
+  it("release() re-queues without burning an attempt", () => {
+    const q = freshQueue();
+    q.enqueue({ type: "enrich", payload: {}, contentHash: "h", maxAttempts: 2 });
+
+    const j1 = q.lease()!;
+    q.release(j1.id, "budget breaker open");
+    expect(q.stats().queued).toBe(1);
+    expect(q.stats().failed).toBe(0);
+
+    // Still has both attempts: two real failures are needed to reach the cap.
+    const j2 = q.lease()!;
+    q.fail(j2.id, "boom");
+    expect(q.stats().failed).toBe(0);
+    const j3 = q.lease(Date.now() + 60_000)!;
+    q.fail(j3.id, "boom");
+    expect(q.stats().failed).toBe(1);
+    q.close();
+  });
+
+  it("reclaims a lease stranded by a crashed worker", () => {
+    const q = freshQueue();
+    q.enqueue({ type: "enrich", payload: {}, contentHash: "h" });
+    const job = q.lease()!;
+    expect(q.stats().leased).toBe(1);
+
+    // Nothing to reclaim while the lease is fresh.
+    expect(q.reclaimStale()).toBe(0);
+    expect(q.stats().leased).toBe(1);
+
+    // Past the TTL the job comes back rather than being stranded forever.
+    expect(q.reclaimStale(Date.now() + 31 * 60_000)).toBe(1);
+    expect(q.stats().leased).toBe(0);
+    expect(q.lease()?.id).toBe(job.id);
+    q.close();
+  });
+
+  it("clears leased_at on complete so a done job is never reclaimed", () => {
+    const q = freshQueue();
+    q.enqueue({ type: "enrich", payload: {}, contentHash: "h" });
+    q.complete(q.lease()!.id);
+    expect(q.reclaimStale(Date.now() + 31 * 60_000)).toBe(0);
+    expect(q.stats().done).toBe(1);
     q.close();
   });
 });

@@ -1,8 +1,8 @@
+import { childLogger, loadConfig } from "@cm/shared";
 import { serve } from "@hono/node-server";
-import { loadConfig, childLogger } from "@cm/shared";
 import { buildApi } from "./api.js";
+import { closeGraph, getGraph } from "./falkor.js";
 import { ensureIndexes } from "./indexes.js";
-import { getGraph, closeGraph } from "./falkor.js";
 
 const log = childLogger("graph-core");
 

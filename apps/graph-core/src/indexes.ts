@@ -1,16 +1,25 @@
-import { loadConfig, childLogger } from "@cm/shared";
+import { childLogger, loadConfig } from "@cm/shared";
 import { query } from "./falkor.js";
 
 const log = childLogger("graph-core:indexes");
 
-/** Swallow "index already exists" so bootstrap is idempotent. */
+/**
+ * Swallow "index already exists" so bootstrap is idempotent.
+ *
+ * The match is deliberately narrow. A bare `msg.includes("exist")` also
+ * swallowed "graph does not exist" and "property does not exist", so a genuinely
+ * failed index creation logged nothing and only surfaced much later as vector
+ * searches that silently returned nothing.
+ */
+const ALREADY_EXISTS = /already\s+(indexed|exists)|attribute .* is already/i;
+
 async function tryExec(label: string, cypher: string): Promise<void> {
   try {
     await query(cypher);
     log.info({ index: label }, "index ensured");
   } catch (err) {
-    const msg = String((err as Error)?.message ?? err).toLowerCase();
-    if (msg.includes("already") || msg.includes("exist")) return;
+    const msg = String((err as Error)?.message ?? err);
+    if (ALREADY_EXISTS.test(msg)) return;
     log.warn({ index: label, err: msg }, "index ensure failed (continuing)");
   }
 }

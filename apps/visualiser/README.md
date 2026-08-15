@@ -1,22 +1,42 @@
 # Visualiser — "The Cognitive Mirror"
 
-> 📖 Part of Cognitive-mirror — see the [full documentation](../../documentation.md) for
+> 📖 Part of Cognitive-mirror — see the [full documentation](../../docs/architecture.md) for
 > architecture, setup, the API endpoints, and how this fits the whole system.
 
-The navigable, real-time display layer (design §15 Phase 4). This is a faithful port of the
-Claude Design prototype the user handed off (`design/original.dc.html`) into a Next.js app.
+The navigable, real-time display layer — a Next.js app rendering the live graph and the
+reasoning traces over it.
 
-**Aesthetic:** the final design is **light monochrome** — a white void, dark wireframe knowledge
-sphere behind frosted-white glass HUD panels (JetBrains Mono + Space Grotesk), with muted cyan
-(`#0E86A8`) for "thinking" traces and gold (`#D8A63E`) for "arriving" syntheses. Cross-domain
-connections are drawn in purple (`#8B5CF6`). (This refines
-away from the dark-Tron look in `design/design-brief.md` — match the HTML, not the brief.)
+**Aesthetic:** **light monochrome** by default — a white void, dark wireframe knowledge sphere
+behind frosted-white glass HUD panels (JetBrains Mono + Space Grotesk), with muted cyan
+(`#0E86A8`) for "thinking" traces and gold for both cross-domain connections and "arriving"
+syntheses. A dark theme inverts the grayscale ramps.
 
-## What's implemented (this pass)
+**Connection lines** are tubes, not lines — WebGL ignores `linewidth`, so thickness is the tube
+radius. Three roles, distinguished by colour *and* weight so they stay readable at a glance:
+
+| Role | Colour | Tube radius |
+|---|---|---|
+| Cross-domain `RELATES_TO` | gold — `#B07B16` light / `#D8A63E` dark | `0.007` |
+| `CONTRADICTS` | crimson `#C2557A` | `0.011` — the heaviest, deliberately |
+| Live query traversal | cyan `#0E86A8` | `0.008`, transient |
+
+`0.007` was picked by looking at a real graph, not by taste. A mature graph has
+well over a thousand cross-domain arcs, and they overlap: at `0.009` the sphere
+fills in to an opaque gold shell that hides the nodes entirely, while `0.006`
+(the original) reads as a hairline once a single arc is isolated. `0.007` keeps
+individual strands traceable and the node dots visible through them. If you
+change it, check against a populated graph — it looks fine at any width when
+there are only a dozen edges.
+
+Gold is theme-dependent: `#D8A63E` (the same gold as the synthesis flare) is illegible on the
+white theme, so the light theme drops to a deeper, less luminous gold. `setTheme()` re-tints
+existing arcs, which is why each one carries an `ArcRole` rather than a baked-in hex.
+
+## What's implemented
 - **Welcome / command glass:** live clock, weather card, 3-card Daily Brief, the Open-Loop
   resurfacing card, the "Ask your second brain…" command line, and the cockpit status bar.
 - **Knowledge sphere:** a Three.js icosphere of glowing nodes in five domain clusters, named
-  nodes with labels, purple cross-domain connection lines, depth-faded wireframe, drifting
+  nodes with labels, gold cross-domain connection lines, depth-faded wireframe, drifting
   rotation, mouse parallax, and time-of-day tint.
 - **"Watch Claude think":** the scripted query traversal (cyan packets → cross-domain hop →
   convergence ring → gold synthesis flare → trace-back), the Reasoning-Trace console, anchored
@@ -65,13 +85,15 @@ For live data the backend must be up (`pnpm up`, or `pnpm dev` at the repo root)
 
 ## Structure
 - `lib/engine.ts` — `CognitiveMirrorEngine`: the Three.js sphere + interaction state machine,
-  ported from the prototype's `DCLogic` class. Owns all view state; emits snapshots via `onView`.
+  owns all view state and emits snapshots via `onView`.
 - `components/CognitiveMirror.tsx` — the React HUD; renders the glass panels and forwards events
   to the engine. Wrapper elements (`#cm-hud`, `#cm-center`, `#cm-canvas-mount`) have their
   transform/opacity/filter driven imperatively by the engine, so React re-renders don't fight it.
-- `design/` — provenance: the original `.dc.html`, the design brief, and reference screenshots.
+- `design/screenshots/` — reference screenshots from the original design pass.
 
-## Still open
-See the root [TODO.md](../../TODO.md). The visualiser itself is feature-complete against the
-prototype and live-wired; the remaining gaps are backend (off-device access, atomicity) rather
-than UI.
+## Known gaps
+
+Accessibility. Several controls are clickable `<div>`s without keyboard handlers,
+and the decorative SVGs have no titles — the Biome a11y rules are switched off
+for `components/CognitiveMirror.tsx` to keep that visible rather than pretending
+it's clean. It's a well-scoped contribution if you want one.

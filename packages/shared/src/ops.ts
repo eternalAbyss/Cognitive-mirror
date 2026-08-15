@@ -17,10 +17,52 @@ const CreateNode = z.object({
   id: z.string().uuid().optional(),
 });
 
+/**
+ * Property names a patch may never carry.
+ *
+ * `updateNode` compiles down to `SET n += $patch`, which will happily overwrite
+ * anything. These particular keys are load-bearing invariants rather than
+ * ordinary content:
+ *  - `id`          the node's identity, referenced by every edge and op-log entry
+ *  - `type`        mirrored as a Cypher *label* (`:Node:Concept`) that a property
+ *                  write would not follow, desynchronising the two
+ *  - `archived`    a patch could silently resurrect a tombstoned node
+ *  - `createdAt`   append-only provenance
+ *  - `externalId`  the dedup key; hijacking it makes future upserts land on the
+ *                  wrong node
+ *  - `summary_embedding` must go through `setSummaryEmbedding`, which enforces
+ *                  the EMBED_DIM the vector index was built with
+ */
+export const PROTECTED_NODE_PROPS = [
+  "id",
+  "type",
+  "archived",
+  "createdAt",
+  "externalId",
+  "summary_embedding",
+] as const;
+
+/**
+ * Property names must be plain identifiers.
+ *
+ * Beyond hygiene this is a security boundary: the rollback path in graph-core
+ * interpolates patch keys directly into a Cypher `REMOVE n.\`key\`` clause, so an
+ * unconstrained key is an injection primitive. Validating here keeps the check
+ * on the one schema every write already passes through.
+ */
+const PropertyNameSchema = z
+  .string()
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "property names must be plain identifiers")
+  .max(128)
+  .refine(
+    (k) => !(PROTECTED_NODE_PROPS as readonly string[]).includes(k),
+    (k) => ({ message: `'${k}' is a protected property and cannot be patched` }),
+  );
+
 const UpdateNode = z.object({
   kind: z.literal("updateNode"),
   id: z.string().uuid(),
-  patch: z.record(z.unknown()),
+  patch: z.record(PropertyNameSchema, z.unknown()),
 });
 
 const SoftDeleteNode = z.object({
@@ -33,7 +75,7 @@ const CreateEdge = z.object({
   from: z.string().uuid(),
   to: z.string().uuid(),
   type: EdgeTypeSchema,
-  props: z.record(z.unknown()).optional(),
+  props: z.record(PropertyNameSchema, z.unknown()).optional(),
 });
 
 const Tombstone = z.object({

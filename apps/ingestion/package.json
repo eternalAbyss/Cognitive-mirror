@@ -10,8 +10,7 @@
     "kindle": "tsx src/import-kindle.ts",
     "repos": "tsx src/import-repos.ts",
     "build": "tsup src/index.ts --format esm --clean",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@cm/queue": "workspace:*",

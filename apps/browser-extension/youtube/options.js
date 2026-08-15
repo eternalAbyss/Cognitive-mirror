@@ -7,7 +7,12 @@ chrome.storage.sync.get(["ingestUrl", "ingestToken"]).then(({ ingestUrl, ingestT
 });
 
 document.getElementById("save").addEventListener("click", async () => {
-  await chrome.storage.sync.set({ ingestUrl: urlEl.value.trim(), ingestToken: tokenEl.value.trim() });
+  await chrome.storage.sync.set({
+    ingestUrl: urlEl.value.trim(),
+    ingestToken: tokenEl.value.trim(),
+  });
   document.getElementById("saved").textContent = "Saved";
-  setTimeout(() => (document.getElementById("saved").textContent = ""), 1500);
+  setTimeout(() => {
+    document.getElementById("saved").textContent = "";
+  }, 1500);
 });

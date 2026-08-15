@@ -1,5 +1,5 @@
-import { loadConfig, childLogger, JOB_TYPE_ENRICH, type EnrichPayload } from "@cm/shared";
 import type { JobQueue } from "@cm/queue";
+import { type EnrichPayload, JOB_TYPE_ENRICH, childLogger, loadConfig } from "@cm/shared";
 
 const log = childLogger("ingestion:github");
 
@@ -10,16 +10,13 @@ interface GhCommit {
 }
 
 async function fetchCommits(repo: string, token: string): Promise<GhCommit[]> {
-  const res = await fetch(
-    `https://api.github.com/repos/${repo}/commits?per_page=10`,
-    {
-      headers: {
-        accept: "application/vnd.github+json",
-        "user-agent": "cognitive-mirror",
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
-      },
+  const res = await fetch(`https://api.github.com/repos/${repo}/commits?per_page=10`, {
+    headers: {
+      accept: "application/vnd.github+json",
+      "user-agent": "cognitive-mirror",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
-  );
+  });
   if (!res.ok) {
     throw new Error(`github ${repo} -> ${res.status}: ${await res.text()}`);
   }
