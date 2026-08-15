@@ -22,7 +22,7 @@ jobs:
         # node:sqlite is new enough that its API has moved between releases.
         node: [22, 24]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v6
 
@@ -46,7 +46,7 @@ jobs:
     name: build the published package
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
