@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { type EnrichPayload, childLogger, loadConfig } from "@cm/shared";
+import { childLogger, type EnrichPayload, loadConfig } from "@cm/shared";
 import { budget } from "./budget.js";
 
 const log = childLogger("daemon:anthropic");

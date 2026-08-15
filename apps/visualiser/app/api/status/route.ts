@@ -1,4 +1,4 @@
-import { DAEMON, GRAPH_CORE, MCP, getJson } from "../../../lib/services";
+import { DAEMON, GRAPH_CORE, getJson, MCP } from "../../../lib/services";
 
 export const dynamic = "force-dynamic";
 

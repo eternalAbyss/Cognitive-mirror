@@ -1,4 +1,4 @@
-import { GRAPH_CORE, embed } from "../../../lib/services";
+import { embed, GRAPH_CORE } from "../../../lib/services";
 
 export const dynamic = "force-dynamic";
 

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { embed } from "@cm/embeddings";
 import type { GraphClient } from "@cm/graph-client";
-import { type GraphOp, childLogger, loadConfig } from "@cm/shared";
+import { childLogger, type GraphOp, loadConfig } from "@cm/shared";
 import { synthesizeBrief } from "./anthropic.js";
 import { fetchArxiv } from "./sources/arxiv.js";
 import { fetchGithubTrending } from "./sources/github-trending.js";

@@ -16,9 +16,9 @@ import {
 } from "./docker.js";
 import { ENV_TEMPLATE } from "./env-template.js";
 import { envPath, readEnv, resolveHome, updateEnv } from "./home.js";
-import { SERVICES, printReady, servicePath, startAll } from "./services.js";
+import { printReady, SERVICES, servicePath, startAll } from "./services.js";
 import { bold, cyan, dim, fail, gold, green, heading, ok, red, step, warn, yellow } from "./ui.js";
-import { VISUALISER_PORT, startVisualiser } from "./visualiser.js";
+import { startVisualiser, VISUALISER_PORT } from "./visualiser.js";
 
 const OLLAMA_DEFAULT = "http://127.0.0.1:11434";
 

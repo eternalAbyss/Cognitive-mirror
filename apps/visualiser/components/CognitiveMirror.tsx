@@ -2002,7 +2002,13 @@ function Vital({
   last,
   dot,
   onClick,
-}: { value: string; label: string; last?: boolean; dot?: boolean; onClick?: () => void }) {
+}: {
+  value: string;
+  label: string;
+  last?: boolean;
+  dot?: boolean;
+  onClick?: () => void;
+}) {
   return (
     <div
       onClick={onClick}

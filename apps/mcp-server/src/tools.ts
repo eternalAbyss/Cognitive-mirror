@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { embed } from "@cm/embeddings";
 import type { GraphClient } from "@cm/graph-client";
-import { EDGE_TYPES, type GraphOp, NODE_TYPES, loadConfig } from "@cm/shared";
+import { EDGE_TYPES, type GraphOp, loadConfig, NODE_TYPES } from "@cm/shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { emit } from "./events.js";

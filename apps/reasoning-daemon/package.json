@@ -19,12 +19,11 @@
     "@cm/shared": "workspace:*",
     "@hono/node-server": "^1.13.7",
     "hono": "^4.6.16",
-    "node-cron": "^3.0.3",
+    "node-cron": "^4.6.0",
     "rss-parser": "^3.13.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@types/node-cron": "^3.0.11",
     "pino-pretty": "^13.1.3"
   }
 }
