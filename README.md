@@ -7,17 +7,8 @@ build; distils it into a knowledge graph; and keeps that graph tidy on its own
 schedule. Claude reasons over it. Everything stays on your machine.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-
-<!--
-  Two more badges belong here, but each renders broken until the thing it points
-  at exists. Paste them back in at the right moment:
-
-  After CI has run once on the default branch:
-  [![CI](https://github.com/eternalAbyss/Cognitive-mirror/actions/workflows/ci.yml/badge.svg)](https://github.com/eternalAbyss/Cognitive-mirror/actions/workflows/ci.yml)
-
-  After the first `npm publish`:
-  [![npm](https://img.shields.io/npm/v/cognitive-mirror.svg)](https://www.npmjs.com/package/cognitive-mirror)
--->
+[![CI](https://github.com/eternalAbyss/Cognitive-mirror/actions/workflows/ci.yml/badge.svg)](https://github.com/eternalAbyss/Cognitive-mirror/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/cognitive-mirror.svg)](https://www.npmjs.com/package/cognitive-mirror)
 
 ```bash
 npx cognitive-mirror@latest init
