@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Build and pack without publishing"
+        description: "Build and validate the package without publishing"
         type: boolean
         default: true
 
@@ -15,17 +15,23 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Required for npm provenance: the published package carries a signed,
-      # verifiable link back to the commit and workflow that built it.
+      # OIDC. This is what authenticates the publish (npm trusted publishing,
+      # so there is no NPM_TOKEN) and what lets npm attach provenance.
       id-token: write
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
-          cache: pnpm
+          node-version: 24
           registry-url: https://registry.npmjs.org
+          # npm's own guidance for release builds: never restore a cache into
+          # the job that produces the artifact people install.
+          package-manager-cache: false
+
+      # The npm bundled with Node is older than trusted publishing requires.
+      - name: Install an npm new enough for trusted publishing
+        run: npm install -g npm@latest
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
@@ -43,12 +49,70 @@ jobs:
             exit 1
           fi
 
+      # Publishing is irreversible and a version number cannot be reused, so the
+      # two failure modes that produced an unattested 0.1.0 are checked BEFORE
+      # anything is uploaded rather than after.
+      - name: Pre-flight the provenance prerequisites
+        run: |
+          npm_version=$(npm --version)
+          echo "npm $npm_version"
+          node -e '
+            const [maj, min, pat] = process.argv[1].split(".").map(Number);
+            const ok = maj > 11 || (maj === 11 && (min > 5 || (min === 5 && pat >= 1)));
+            if (!ok) {
+              console.log(`::error::npm ${process.argv[1]} is too old for trusted publishing (need >= 11.5.1)`);
+              process.exit(1);
+            }
+          ' "$npm_version"
+          if [ -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
+            echo "::error::no OIDC token available — the job is missing id-token: write"
+            exit 1
+          fi
+          echo "OIDC token endpoint present"
+
+      # pnpm packs, npm publishes, and each is doing the half the other cannot.
+      #
+      # Only pnpm rewrites the workspace:* devDependencies into real versions —
+      # npm has no idea what that protocol means and would ship it verbatim.
+      #
+      # Only npm attaches provenance. `pnpm publish --provenance` accepts the
+      # flag and silently drops it (pnpm#6607), which is exactly how 0.1.0 went
+      # out with dist.attestations null despite the flag being set.
+      #
+      # So: pack with pnpm, unpack, publish that directory with npm.
+      - name: Stage the package
+        run: |
+          cd apps/cli
+          pnpm pack --pack-destination "$RUNNER_TEMP"
+          mkdir -p "$RUNNER_TEMP/stage"
+          tar -xzf "$RUNNER_TEMP"/cognitive-mirror-*.tgz -C "$RUNNER_TEMP/stage"
+          node -p "'staged ' + require('$RUNNER_TEMP/stage/package/package.json').name + '@' + require('$RUNNER_TEMP/stage/package/package.json').version"
+
       - name: Publish
         if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true
-        run: pnpm --filter cognitive-mirror publish --access public --no-git-checks --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        working-directory: ${{ runner.temp }}/stage/package
+        run: npm publish --access public --provenance
 
-      - name: Pack only (dry run)
+      # Provenance failing open is what went unnoticed last time: the release was
+      # green, the flag was set, and the package shipped unsigned anyway. Assert
+      # the outcome instead of trusting the flag.
+      - name: Verify the published version carries provenance
+        if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          att=""
+          for _ in $(seq 1 10); do
+            att=$(npm view "cognitive-mirror@$version" dist.attestations --json 2>/dev/null || true)
+            if [ -n "$att" ] && [ "$att" != "null" ]; then break; fi
+            sleep 6
+          done
+          if [ -z "$att" ] || [ "$att" = "null" ]; then
+            echo "::error::cognitive-mirror@$version published WITHOUT provenance; it cannot be re-published, so ship $version+1 once the cause is fixed"
+            exit 1
+          fi
+          echo "provenance attached: $att"
+
+      - name: Validate the package without publishing
         if: inputs.dry_run == true
-        run: pnpm --filter cognitive-mirror exec npm pack --pack-destination /tmp
+        working-directory: ${{ runner.temp }}/stage/package
+        run: npm publish --dry-run --access public

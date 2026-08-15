@@ -25,6 +25,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - CI on Node 22 and 24, plus a release workflow that publishes with npm
   provenance. CI installs the built tarball outside the repo, because that is
   the only place packaging bugs show up.
+
+  Provenance did not actually attach on 0.1.0: `pnpm publish` accepts
+  `--provenance` and silently ignores it (pnpm#6607), so that release is
+  unsigned and cannot be re-signed. The workflow now packs with pnpm — the only
+  one of the two that resolves `workspace:*` — and publishes with npm, which is
+  the only one that attaches the attestation. It authenticates with OIDC
+  through npm trusted publishing rather than a token, and asserts the
+  attestation exists on the registry afterwards instead of trusting the flag.
 - Biome for linting and formatting; root vitest config with coverage.
 
 ### Changed
