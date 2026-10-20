@@ -1,4 +1,5 @@
 export * from "./config.js";
+export * from "./env-file.js";
 export * from "./ingest.js";
 export * from "./keychain.js";
 export * from "./logger.js";

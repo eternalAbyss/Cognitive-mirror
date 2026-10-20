@@ -78,16 +78,31 @@ export async function searchSemantic({
 }: SemanticSearchParams): Promise<Array<NodeView & { score: number }>> {
   const safeK = Math.max(1, Math.min(100, Math.floor(k)));
   const typeFilter = type && isNodeType(type) ? `AND '${type}' IN labels(node)` : "";
+  /**
+   * The index returns the globally-nearest N nodes and the archived/label filter
+   * runs AFTERWARDS, so asking it for exactly `k` and then filtering yields fewer
+   * than `k` — and at small `k` usually nothing at all. Measured on a real graph:
+   * `k=1` filtered to Concept returned 0 results while `k=50` returned 11, the
+   * closest at distance 0.376.
+   *
+   * This is why the daily brief produced no observations. `nearest()` asks for
+   * k=1 per type, got null for nearly every candidate, and discarded the lot —
+   * so the world-brief job ran to completion, logged success, and wrote nothing.
+   * Over-fetch a wider probe, let the filter run, then trim to `k`.
+   */
+  const probe = Math.min(1000, Math.max(safeK * 20, 50));
   const rows = await query<{
     props: Record<string, unknown>;
     labels: string[];
     score: number;
   }>(
-    `CALL db.idx.vector.queryNodes('Node', 'summary_embedding', ${safeK}, ${vecLiteral(
+    `CALL db.idx.vector.queryNodes('Node', 'summary_embedding', ${probe}, ${vecLiteral(
       embedding,
     )}) YIELD node, score
      WHERE coalesce(node.archived, false) = false ${typeFilter}
-     RETURN properties(node) AS props, labels(node) AS labels, score`,
+     RETURN properties(node) AS props, labels(node) AS labels, score
+     ORDER BY score ASC
+     LIMIT ${safeK}`,
   );
   return rows.map((r) => ({ props: r.props, labels: r.labels, score: r.score }));
 }

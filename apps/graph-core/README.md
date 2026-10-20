@@ -30,11 +30,30 @@ always recoverable until maintenance prunes it.
 |---|---|
 | `execute.ts` | The mutation primitive: batches, compensating inverses, rollback |
 | `repo.ts` | Reads — get, traverse, semantic/keyword search |
+| `settings.ts` | Runtime settings: reads and writes the installation's `.env` for the dashboard |
 | `oplog.ts` | Append-only log + undo |
 | `approvals.ts` | The consent queue for destructive actions on hand-edited notes |
 | `maintenance.ts` | Queries backing the nightly engine (merge candidates, cross-domain pairs, archival) |
 | `indexes.ts` | Index bootstrap — exact, full-text, and vector |
 | `falkor.ts` | The FalkorDB connection and query helpers |
+
+## A note on vector search
+
+`db.idx.vector.queryNodes` returns the globally-nearest *N* nodes, and the
+`archived` / label filter in the `WHERE` clause runs **afterwards**. Asking the
+index for exactly `k` and then filtering therefore returns fewer than `k`, and at
+small `k` often nothing at all — measured on a real graph, `k=1` filtered to
+`Concept` returned 0 results while `k=50` returned 11, the closest at distance
+0.376.
+
+That is not a theoretical concern: it silently broke the daily brief. `nearest()`
+asks for `k=1` per type, got `null` for nearly every candidate, discarded the
+lot, and the world-brief job ran to completion and wrote nothing — so the news
+panel stayed empty while the logs said success.
+
+`searchSemantic` now over-fetches a wider probe, lets the filter run, then
+`ORDER BY score ASC LIMIT k`. If you add another filtered index query, do the
+same.
 
 ## A note on Cypher
 

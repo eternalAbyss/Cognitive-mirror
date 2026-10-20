@@ -13,10 +13,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* biome-ignore lint/security/noDangerouslySetInnerHtml: THEME_INIT is a
+        {/* suppressHydrationWarning: the body is a compile-time constant, so it can
+            never genuinely differ — but script-blocking browser extensions empty the
+            node before React hydrates, and without this that turns into a hard
+            hydration error for the whole tree.
+            biome-ignore lint/security/noDangerouslySetInnerHtml: THEME_INIT is a
             compile-time constant with no interpolation; it has to be inline and
             synchronous to set the theme before first paint. */}
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
+        <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap"

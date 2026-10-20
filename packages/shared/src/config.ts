@@ -1,8 +1,15 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { config as loadDotenv } from "dotenv";
+import { parse as parseDotenv } from "dotenv";
 import { z } from "zod";
 import { getSecret } from "./keychain.js";
+
+/**
+ * The keys this module has written into process.env from the file, and the value
+ * it last wrote. This is how a reload tells "the file owns this" from "somebody
+ * else set this", and it is the whole of the precedence rule — see `applyEnvFile`.
+ */
+const fileApplied = new Map<string, string>();
 
 /**
  * The directory that holds this installation's `.env` and `.data/`.
@@ -35,19 +42,61 @@ export function resolveHomeDir(): string {
   return process.cwd();
 }
 
+/** The home dir never moves within a process, and resolving it walks the disk. */
+let homeDir: string | undefined;
+function homeDirOnce(): string {
+  if (homeDir === undefined) homeDir = resolveHomeDir();
+  return homeDir;
+}
+
 /**
- * Resolve the home dir and load its `.env` into process.env.
+ * Read the home dir's `.env` and apply it to process.env.
  *
- * `quiet` is load-bearing, not cosmetic: from v17 dotenv announces itself on
- * **stdout**, and the stdio MCP server has Claude Desktop reading MCP protocol
- * frames from that exact stream (see `logger.ts`, which pins logging to fd 2
- * for the same reason). One banner there corrupts the session.
+ * This parses the file itself rather than calling `dotenv.config()`: reloading
+ * has to apply a CHANGED value, which `config()` won't do without `override`,
+ * and `override` would clobber genuine environment variables.
+ *
+ * Precedence: a key is only written when it is unset, or when it still holds
+ * exactly what this module last wrote into it. Anything else — a shell export,
+ * a value the CLI injected, one a test assigned — is left alone, so a dashboard
+ * edit can never silently overwrite a setting someone made deliberately. An
+ * earlier version compared against a snapshot of process.env taken at import,
+ * which looked equivalent and was not: it treated everything assigned after
+ * import as fair game and quietly clobbered it.
+ *
+ * (`config()`'s `quiet` flag was load-bearing, not cosmetic: from v17 dotenv
+ * announces itself on **stdout**, and the stdio MCP server has Claude Desktop
+ * reading MCP protocol frames from that exact stream — see `logger.ts`, which
+ * pins logging to fd 2 for the same reason. Parsing directly writes nothing at
+ * all, so that hazard is gone entirely.)
  */
-function loadEnvFile(): string {
-  const dir = resolveHomeDir();
+function applyEnvFile(dir: string): void {
   const candidate = join(dir, ".env");
-  if (existsSync(candidate)) loadDotenv({ path: candidate, quiet: true });
-  return dir;
+  if (!existsSync(candidate)) return;
+  let vars: Record<string, string>;
+  try {
+    vars = parseDotenv(readFileSync(candidate, "utf8"));
+  } catch {
+    return; // mid-write or unreadable: keep whatever we already have
+  }
+  for (const [k, v] of Object.entries(vars)) {
+    const current = process.env[k];
+    const ours = fileApplied.get(k);
+    if (current === undefined || (ours !== undefined && current === ours)) {
+      process.env[k] = v;
+      fileApplied.set(k, v);
+    }
+  }
+}
+
+/** Identity of the current `.env` contents, cheap enough to check on every call. */
+function envStamp(dir: string): string {
+  try {
+    const st = statSync(join(dir, ".env"));
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return "absent";
+  }
 }
 
 /**
@@ -132,6 +181,13 @@ const EnvSchema = z.object({
   BRIEF_THRESHOLD: num(0.45), // min cosine to a Concept/Interest to keep a candidate
   BRIEF_MAX_OBSERVATIONS: num(5),
   BRIEF_CRON: z.string().default("0 7 * * *"), // 07:00 daily
+  /**
+   * How old the newest world observation may get before the dashboard pulls a
+   * fresh brief on its own. This is a staleness trigger, not a second schedule:
+   * nothing fires on a clock, it refreshes when someone looks and the news has
+   * aged past this.
+   */
+  BRIEF_MAX_AGE_HOURS: num(12),
   ARXIV_CATEGORIES: z.string().default("cs.AI,cs.LG,cs.CL"),
   RSS_FEEDS: z.string().default(""), // comma-separated feed URLs
 
@@ -205,11 +261,38 @@ function resolveModelPrices(raw: string): Record<string, ModelPrice> {
 }
 
 let cached: AppConfig | undefined;
+/** The `.env` identity the cache was built from, and when we last checked it. */
+let cachedStamp = "";
+let lastStatAt = 0;
+/**
+ * How stale a config may be, in ms. The dashboard writes settings straight to
+ * `.env` and every service re-reads on its next `loadConfig()`, so this is the
+ * worst-case lag before a change takes effect. It exists only to bound the
+ * syscall rate — `loadConfig()` is called per embedding and per model call, and
+ * an unconditional stat in those loops would be a syscall per request.
+ */
+const STAT_INTERVAL_MS = 250;
 
+/**
+ * Centralised configuration, re-read whenever `.env` changes on disk.
+ *
+ * The cache is keyed on the file's mtime+size rather than being invalidated by
+ * a watcher, so every service picks up an edit on its own with no wiring, no
+ * IPC, and no restart — which is what makes the dashboard's settings editor
+ * take effect across all five processes. Anything captured at module scope at
+ * boot (ports already bound, cron jobs already registered) is unaffected; see
+ * `IMMUTABLE_KEYS` in `env-file.ts` for the settings this deliberately refuses.
+ */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  if (cached) return cached;
+  const rootDir = homeDirOnce();
+  const now = Date.now();
+  if (cached && now - lastStatAt < STAT_INTERVAL_MS) return cached;
+  lastStatAt = now;
+  const stamp = envStamp(rootDir);
+  if (cached && stamp === cachedStamp) return cached;
 
-  const rootDir = loadEnvFile();
+  applyEnvFile(rootDir);
+  cachedStamp = stamp;
   const merged = { ...env };
   // Prefer Keychain for secrets when the env var is absent (no-op on failure).
   merged.ANTHROPIC_API_KEY ||= getSecret("cm-anthropic-api-key") ?? "";
@@ -243,4 +326,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 /** Test helper to drop the memoised config. */
 export function resetConfigCache(): void {
   cached = undefined;
+  cachedStamp = "";
+  lastStatAt = 0;
+  homeDir = undefined;
+  fileApplied.clear();
 }

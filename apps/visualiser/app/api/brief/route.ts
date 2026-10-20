@@ -33,29 +33,17 @@ async function nodesOfType(type: string, limit: number): Promise<NodeRow[]> {
 }
 
 /**
- * Daily Brief panel feed. Prefer the daemon's synthesised WorldEvent observations
- * (design §12). Until the brief job has run, fall back to the user's most active
- * Concepts/Interests — the same nodes the brief is scored against — so the panel
- * always surfaces relevant graph content on load instead of a dead-end prompt.
+ * "From your graph" — the centre panel: the user's most active Concepts and
+ * Interests, hottest first (recently read, then most-traversed, then
+ * best-connected).
+ *
+ * This used to prefer the daemon's synthesised WorldEvent observations and fall
+ * back to concepts only when none existed. Those observations now have their own
+ * panel (`/api/news`), so preferring them here meant that the moment the first
+ * brief landed, both panels showed the same five cards. The split follows the
+ * labels: world signal is news, this is your graph.
  */
 export async function GET() {
-  const world = await nodesOfType("WorldEvent", 20);
-  if (world.length > 0) {
-    const items: BriefItem[] = world
-      .map((n) => ({
-        id: n.props.id ?? "",
-        title: n.props.title ?? "",
-        summary: n.props.summary ?? "",
-        asOf: n.props.asOf ?? "",
-        kind: "world" as const,
-      }))
-      .sort((a, b) => (b.asOf || "").localeCompare(a.asOf || ""))
-      .slice(0, 5);
-    return Response.json({ items, source: "world" });
-  }
-
-  // Fallback: most-active concepts/interests, hottest first (recently read, then
-  // most-traversed, then best-connected).
   const [concepts, interests] = await Promise.all([
     nodesOfType("Concept", 2000),
     nodesOfType("Interest", 2000),
@@ -84,3 +72,5 @@ export async function GET() {
 
   return Response.json({ items, source: "graph" });
 }
+
+// `nodesOfType` is still used above; WorldEvent now belongs to /api/news.

@@ -4,7 +4,9 @@ import { childLogger, loadConfig } from "@cm/shared";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { z } from "zod";
+import { answerQuestion } from "./answer.js";
 import { budget } from "./budget.js";
+import { newsFreshness, refreshNews } from "./news-freshness.js";
 import { researchTopic } from "./research.js";
 
 const log = childLogger("daemon:status");
@@ -20,6 +22,24 @@ export function startStatusServer(queue: JobQueue, graph: GraphClient): () => vo
   const app = new Hono();
   app.get("/health", (c) => c.json({ ok: true, service: "reasoning-daemon" }));
   app.get("/status", (c) => c.json({ budget: budget.snapshot(), queue: queue.stats() }));
+  // News staleness (design §12, dashboard news panel). GET reports how old the
+  // newest observation is; POST pulls a fresh brief when it has aged out, or
+  // unconditionally with {"force":true}.
+  app.get("/news/freshness", async (c) => c.json(await newsFreshness(graph)));
+
+  app.post("/news/refresh", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { force?: unknown };
+    return c.json(await refreshNews(graph, queue, body.force === true));
+  });
+
+  // Grounded Q&A over the graph for the dashboard's ask bar. Lives here rather
+  // than in graph-core for the same reason /research does: the Anthropic client
+  // and the budget breaker stay in one process.
+  app.post("/answer", async (c) => {
+    const { question } = z.object({ question: z.string().min(1) }).parse(await c.req.json());
+    return c.json(await answerQuestion(graph, question));
+  });
+
   app.post("/research", async (c) => {
     const { topic } = z.object({ topic: z.string().min(1) }).parse(await c.req.json());
     return c.json(await researchTopic(graph, topic));

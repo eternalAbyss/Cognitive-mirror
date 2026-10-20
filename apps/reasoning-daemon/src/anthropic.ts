@@ -337,3 +337,117 @@ function parseResult(text: string, payload: EnrichPayload): EnrichmentResult {
     return fallback;
   }
 }
+
+// ── Grounded question answering over the graph (dashboard "ask") ─────────────
+export interface GraphAnswerContext {
+  id: string;
+  title: string;
+  type: string;
+  domain: string;
+  summary: string;
+  score: number;
+  connections: string[];
+}
+
+export type GraphAnswer =
+  | { ok: true; answer: string; cited: string[]; inGraph: boolean }
+  | { ok: false; reason: "no_api_key" | "budget" | "llm_failed" };
+
+const ANSWER_SYSTEM = `You answer questions about a person's own second brain — a knowledge graph
+of notes, concepts and sources they have collected. You are given RETRIEVED NODES (the search hits
+for their question, with each node's connections) and COUNTS (how many nodes of each type exist in
+the whole graph). Reply ONLY JSON:
+{"answer": string, "cited": [node id, ...], "in_graph": boolean}
+
+"in_graph" is false when the graph simply does not hold what was asked for, and true whenever you
+answered from it — including a partial answer, and including one where you had to say the total
+could not be known. It drives an offer to go and research the topic on the web, so set it false
+only when there is genuinely nothing there to work from.
+
+Rules, in order of importance:
+1. Ground every claim in the RETRIEVED NODES. Never add outside knowledge about the subject, and
+   never invent a note, a connection or a number. Cite the ids of the nodes you actually used.
+2. If the retrieved nodes do not answer the question, say so directly in one or two sentences, and
+   name what is missing. The gap is useful information — do not paper over it with the nearest
+   loosely-related note. Return an empty "cited" and "in_graph": false when you answer this way.
+3. The graph holds what has been INGESTED into it: notes, concepts, and sources that were fed
+   through the pipeline. It is NOT a live connection to the person's other accounts or systems.
+   If the question asks about something that would need a source that clearly was not ingested
+   (their repositories, their mail, their files, their calendar), say that the graph does not have
+   that source connected rather than guessing from whatever happens to be nearby.
+4. COUNTS is exact and is for the entire graph; you may quote those totals directly. The RETRIEVED
+   NODES are a SAMPLE from a search, not a complete set, so never state an exact count of a subset
+   from them — say "at least N in what I found" or describe the shape instead.
+5. Answer in the second person, directly and concretely. No preamble, no "based on the retrieved
+   nodes", no restating the question. Two to five sentences unless the question needs a short list.
+6. When the interesting part is how ideas connect, say which connects to which and why — that is
+   what this graph is for.`;
+
+/**
+ * Synthesise an answer from retrieved graph nodes. Returns a reason instead of
+ * throwing when it cannot run, so the caller can fall back to plain retrieval:
+ * an unconfigured key or a tripped budget breaker is a normal state here, not an
+ * error worth showing the person.
+ */
+export async function answerFromGraph(
+  question: string,
+  context: GraphAnswerContext[],
+  counts: Record<string, number>,
+): Promise<GraphAnswer> {
+  const cfg = loadConfig();
+  if (!cfg.ANTHROPIC_API_KEY) return { ok: false, reason: "no_api_key" };
+  try {
+    budget.check();
+  } catch {
+    return { ok: false, reason: "budget" };
+  }
+
+  const nodes = context
+    .map(
+      (c) =>
+        `- id: ${c.id}\n  title: ${c.title}\n  type: ${c.type}${c.domain ? `\n  domain: ${c.domain}` : ""}\n  closeness: ${c.score.toFixed(3)} (cosine distance, lower is closer)\n  summary: ${c.summary.slice(0, 600)}${c.connections.length ? `\n  connects to: ${c.connections.join("; ")}` : ""}`,
+    )
+    .join("\n");
+  const totals = Object.entries(counts)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join(", ");
+
+  try {
+    const msg = await getClient().messages.create({
+      model: cfg.MODEL_ADJUDICATE,
+      max_tokens: 900,
+      system: [{ type: "text", text: ANSWER_SYSTEM, cache_control: { type: "ephemeral" } }],
+      messages: [
+        {
+          role: "user",
+          content: `QUESTION: ${question}\n\nCOUNTS (whole graph): ${totals || "unknown"}\n\nRETRIEVED NODES:\n${nodes}`,
+        },
+      ],
+    });
+    budget.record(cfg.MODEL_ADJUDICATE, {
+      input: msg.usage.input_tokens,
+      output: msg.usage.output_tokens,
+    });
+    const text = msg.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("");
+    // `in_graph` defaults TRUE: a model that forgets the field should not make
+    // the UI announce a gap and offer to go research the topic.
+    const parsed = parseObject<{ answer: string; cited: string[]; in_graph: boolean }>(text, {
+      answer: "",
+      cited: [],
+      in_graph: true,
+    });
+    if (!parsed.answer.trim()) return { ok: false, reason: "llm_failed" };
+    return {
+      ok: true,
+      answer: parsed.answer.trim(),
+      cited: Array.isArray(parsed.cited) ? parsed.cited.filter((c) => typeof c === "string") : [],
+      inGraph: parsed.in_graph !== false,
+    };
+  } catch (err) {
+    log.warn({ err: String(err) }, "graph answer failed");
+    return { ok: false, reason: "llm_failed" };
+  }
+}

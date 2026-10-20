@@ -63,15 +63,6 @@ body {
     transform: translate(-50%, -50%);
   }
 }
-@keyframes breathe {
-  0%,
-  100% {
-    box-shadow: 0 1px 10px rgba(0, 0, 0, 0.04);
-  }
-  50% {
-    box-shadow: 0 2px 18px rgba(0, 0, 0, 0.09);
-  }
-}
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -91,15 +82,6 @@ input:focus {
 }
 
 /* hover / focus states ported from the prototype's style-hover / style-focus */
-.cm-enter {
-  transition:
-    color 0.2s,
-    border-color 0.2s;
-}
-.cm-enter:hover {
-  color: rgb(var(--ink)) !important;
-  border-color: rgba(var(--ink), 0.4) !important;
-}
 .cm-input {
   transition:
     border-color 0.25s,
@@ -189,6 +171,81 @@ input:focus {
 }
 .cm-allow:hover {
   background: rgb(var(--accent-h)) !important;
+}
+
+/* ── graph widget controls ───────────────────────────────────────────────── */
+
+/* Line-weight slider. Styled explicitly in both themes because the native track
+   is near-invisible on the white theme and near-white on the dark one. */
+.cm-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(var(--ink), 0.18);
+  outline: none;
+  cursor: pointer;
+}
+.cm-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: rgb(var(--ink));
+  border: 2px solid rgb(var(--surface));
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+.cm-range::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: rgb(var(--ink));
+  border: 2px solid rgb(var(--surface));
+  cursor: pointer;
+}
+.cm-range:focus-visible {
+  outline: 2px solid rgba(var(--ink), 0.4);
+  outline-offset: 4px;
+}
+
+/* Free-choice colour well, sized to match the preset swatches beside it. */
+.cm-color {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 1px dashed rgba(var(--ink), 0.3);
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+.cm-color::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+.cm-color::-webkit-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+.cm-color::-moz-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+
+@keyframes cm-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Walkable row in the focus panel. */
+.cm-row {
+  transition: background 0.16s;
+}
+.cm-row:hover {
+  background: rgba(var(--ink), 0.06) !important;
 }
 
 /* Markdown rendering inside glass cards. Scoped to .cm-md so it inherits the

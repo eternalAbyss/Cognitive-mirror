@@ -207,9 +207,10 @@ Cognitive-mirror/
 │  │     ├─ brief.ts                 # daily world brief
 │  │     ├─ maintenance/index.ts     # the maintenance engine (merge/contradiction/insight/prune)
 │  │     ├─ research.ts              # live web research → graph
+│  │     ├─ answer.ts                # grounded Q&A over the graph (the ask bar)
 │  │     ├─ budget.ts                # persistent budget breaker (daily + monthly)
 │  │     ├─ sources/                 # arxiv.ts, rss.ts, github-trending.ts (brief inputs)
-│  │     ├─ status-server.ts         # :4005 — /status, /research, /health
+│  │     ├─ status-server.ts         # :4005 — /status, /answer, /research, /health
 │  │     ├─ health.ts                # periodic self health probe
 │  │     ├─ brief-run.ts             # run the brief once (CLI)
 │  │     └─ maintain-run.ts          # run maintenance once (CLI)
@@ -504,7 +505,37 @@ Claude (**Sonnet**) synthesise up to `BRIEF_MAX_OBSERVATIONS` non-obvious observ
 briefing flows through the **same enrichment pipeline** as any other source — producing a `Source`
 node + extracted `Concept`s + embeddings, with citation URLs preserved.
 
-### 9.8 Budget breaker (persistent)
+### 9.8 Asking the graph (grounded Q&A)
+
+[answer.ts](../apps/reasoning-daemon/src/answer.ts) + `POST /answer`: what makes the dashboard's
+ask bar **answer** rather than only retrieve. Retrieval-augmented generation with the retrieval
+done over the graph — a vector search on the embedded question (over-fetched, because the index
+returns a global top-k and graph-core filters *after*) merged with a literal text search, a
+one-hop traverse off the strongest hits so the **edges** are in context, and the exact
+whole-graph type counts alongside the inexact retrieved sample. **Sonnet** synthesises and cites
+by node id, so an invented citation simply fails to resolve.
+
+This retrieval is deliberately **not** the visualiser's: the sphere animates only the 800 nodes
+it has placed, and an answer must not be capped by what happens to be drawn.
+
+The prompt's first rule is grounding and its second is admitting the gap — when the retrieved
+nodes do not answer the question, it says so and names what is missing instead of reaching for
+the nearest loosely-related note, and it never states an exact count of a subset from a sample.
+It also knows the graph holds what was **ingested**, not a live connection to anyone's accounts.
+The reply carries **`in_graph`** beside the answer: false when the graph does not hold what was
+asked, which the visualiser turns into its "research this on the web" offer. Everything that can
+stop synthesis (no API key, open budget breaker, failed call) returns `{ ok: false, reason }`
+rather than throwing, and the visualiser falls back to reading out the nearest node — labelled
+"retrieved", not "answered".
+
+Synthesis is **never gated on the visualiser's match threshold**. It was once, and the result was
+that any question *phrased as a question* was answered "nothing in your graph" without the daemon
+ever being asked: a question embeds further from every note than its topic does, so hits at
+cosine 0.41–0.43 — the correct nodes — fell outside a 0.4 cutoff tuned for typing a topic. The
+visualiser now keeps two thresholds, one for how far the traversal walks and one for what the
+offline fallback may claim, and neither decides whether the question gets answered.
+
+### 9.9 Budget breaker (persistent)
 
 [budget.ts](../apps/reasoning-daemon/src/budget.ts): a circuit breaker checked before every
 non-essential API call. Spend is **write-through persisted** to `BUDGET_STATE_PATH`, so the breaker
@@ -513,7 +544,7 @@ and a **monthly** cap with UTC rollovers; when tripped, the worker pauses enrich
 configured) fires an ntfy alert. Prices come from `MODEL_PRICES` — absent prices count as $0 (tokens
 still tracked) so the breaker simply won't trip until prices are configured.
 
-### 9.9 Atomic writes, op log, undo
+### 9.10 Atomic writes, op log, undo
 
 [execute.ts](../apps/graph-core/src/execute.ts): FalkorDB only guarantees atomicity **within** a single
 Cypher query, and some ops (tombstone/merge) are inherently multi-statement — so a batch can't be one
@@ -527,7 +558,7 @@ The **op log** ([oplog.ts](../apps/graph-core/src/oplog.ts)) records one entry p
 batches (softDelete/tombstone) get a 24-hour `undoUntil`. `undoOpLog` reverses them within the
 window.
 
-### 9.10 Cooperative conversation capture & resurfacing
+### 9.11 Cooperative conversation capture & resurfacing
 
 The MCP server instructs Claude to call `checkpoint_conversation` at each semantic breakpoint (a
 sub-topic closing) and `close_conversation` at the end. Deltas accumulate on a `Conversation` node,
@@ -535,7 +566,7 @@ so an abrupt ending loses at most the last segment. At a new session start, `get
 returns 1–2 open loops ranked by **recency × activity** so Claude can offer to continue/park/close
 them.
 
-### 9.11 Visualiser
+### 9.12 Visualiser
 
 [apps/visualiser](../apps/visualiser): a Next.js app whose `app/api/*` routes proxy the localhost-only
 services (browser stays same-origin; graph-core/daemon/mcp are never exposed). It renders a Three.js
@@ -543,7 +574,43 @@ knowledge sphere from `/api/graph`, animates live reasoning traces from the MCP 
 `/api/events`, and drives the Daily Brief / vitals / open loops / op log / status panels from the
 graph-core + daemon endpoints. Every panel degrades gracefully if a service is down.
 
-### 9.12 Editing & curation (interactive)
+The graph is a **background element on the right of the page**, full viewport height and
+expandable to fullscreen, with the glass HUD floating over it. The canvas is sized by its mount and watched with a
+`ResizeObserver`, and every camera distance is a multiple of the distance that fits the sphere to
+the current canvas — otherwise a traversal zoomed in and rotated the node out of the panel. The
+dashboard is three columns: a left activity column (op log, swapped for the reasoning trace or
+the focus list while either is live), a centre reading band (brief, command line, cards), and the
+graph on the right.
+
+The sphere has an **inside**. A node's radius is set by its cross-domain *reach* — computed from
+how concentrated its neighbours are in one domain, how many domains they span, and a confidence
+factor on degree — so notes that bridge distant domains sink toward the core while narrow,
+local ones stay on the shell. Depth therefore reads as how far an idea reaches. The widget's
+control bar exposes **fullscreen** (which clears the HUD and collapses the command line to a
+pill), a **line-weight slider**, and **node/line colour pickers**, persisted in `localStorage`.
+Selecting a node enters **focus mode**: everything but that node and its direct neighbours is
+hidden, and clicking a neighbour walks the graph one hop at a time with a breadcrumb trail. See
+[apps/visualiser/README.md](../apps/visualiser/README.md) for the tuning and why an earlier
+angle-based reach metric was removed.
+
+**News.** The dashboard's news panel shows the brief's `WorldEvent` observations and refreshes
+on **staleness, not on a schedule**: reading `/api/news` queues a fresh brief when the newest
+observation is older than `BRIEF_MAX_AGE_HOURS` (12 by default), so an app that isn't open all
+day doesn't show yesterday's news. `BRIEF_CRON` still runs nightly; this is additive. Automatic
+refreshes dedup on a time bucket in the durable queue so polling can't stack them, and the
+panel's refresh button forces one. Staleness is measured from `createdAt`, not the date-only
+`asOf`.
+
+**Runtime settings.** The dashboard's settings bar edits the installation's `.env` live:
+`PATCH /api/settings` proxies graph-core, which validates against a grouped schema and writes the
+file atomically, preserving its comments. `loadConfig()` caches on the file's mtime, so all five
+services re-read on their next config access — no watcher, no IPC, no restart. Settings that are
+only read at boot (bound ports, registered crons, the open FalkorDB pool) are labelled `restart`
+in the UI, and ones that can't be written safely at all are refused by `IMMUTABLE_KEYS`. Secret
+values never leave graph-core; the UI is told presence only. A value exported in the shell still
+takes precedence over the file.
+
+### 9.13 Editing & curation (interactive)
 
 The visualiser is not read-only: notes are first-class objects you can manage.
 - **Markdown** — card/summary text renders as GitHub-flavoured markdown (`react-markdown` +
@@ -605,6 +672,7 @@ All services bind to `127.0.0.1` only.
 |---|---|
 | `GET /health` | Liveness. |
 | `GET /status` | `{ budget: snapshot, queue: stats }`. |
+| `POST /answer` | Answer a question from the graph (retrieve → expand → synthesise). Body: `{ question }`. Returns `{ ok, answer, citations, counts }`, or `{ ok: false, reason }` when synthesis is unavailable. |
 | `POST /research` | Run live web research → graph. Body: `{ topic }`. |
 
 ### mcp-server (`:4003`) · [index.ts](../apps/mcp-server/src/index.ts)
@@ -620,7 +688,8 @@ Plus a **stdio** transport ([stdio.ts](../apps/mcp-server/src/stdio.ts)) for Cla
 
 ### visualiser (`:4004`) — same-origin proxies under `app/api/`
 
-`brief`, `concepts`, `events`, `graph`, `loops`, `nodes`, `node/[id]`, `oplog`, `research`,
+`answer`, `brief`, `concepts`, `events`, `graph`, `loops`, `news`, `nodes`, `node/[id]`, `oplog`,
+`research`, `settings`,
 `search`, `status`, `vitals`, `approvals`, `approvals/[id]/resolve` — each proxies the corresponding
 graph-core/daemon/mcp/Ollama call so the browser never talks to the backends directly.
 `node/[id]` also handles `DELETE` (soft-delete) and `PATCH` (edit: re-embeds the new summary via

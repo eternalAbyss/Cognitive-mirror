@@ -20,6 +20,7 @@ import {
   searchText,
   traverse,
 } from "./repo.js";
+import { readSettings, writeSettings } from "./settings.js";
 
 /**
  * Query-string numbers, with junk falling back to the default.
@@ -141,6 +142,15 @@ export function buildApi(): Hono {
   });
 
   // ── Human-in-the-loop approvals for edited-note cleanup (design §9) ─────────
+  // Runtime settings editor (dashboard). Reads/writes the installation's .env;
+  // every service picks a change up on its next config read.
+  app.get("/settings", (c) => c.json(readSettings()));
+
+  app.patch("/settings", async (c) => {
+    const r = writeSettings(await c.req.json().catch(() => null));
+    return c.json(r, r.ok ? 200 : 400);
+  });
+
   app.get("/approvals", async (c) => c.json({ approvals: await listApprovals() }));
 
   app.post("/approvals", async (c) => {

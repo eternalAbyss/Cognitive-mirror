@@ -36,6 +36,10 @@ Concretely, on its own schedule it will:
   of the whole thing.
 - **Resurface** an open question you left three weeks ago, when something new
   connects to it.
+- **Answer** a question about your own thinking from your own notes. The ask bar
+  retrieves across the graph, follows the edges off what it finds, and
+  synthesises over that — citing the notes it used, and saying plainly when your
+  graph does not hold the answer rather than reaching for the nearest note.
 
 And every morning it writes you a brief: what arrived overnight from arXiv, RSS,
 and GitHub trending, scored against what you actually care about rather than
@@ -89,7 +93,8 @@ partial failure rolls back, and records every mutation in an op log with a
 
 You need **Docker** (for FalkorDB and Ollama) and **Node 22+**. An Anthropic API
 key is optional — ingestion, search, and the visualiser work without one; the
-reasoning does not.
+reasoning does not. Without a key the ask bar still searches and reads out the
+closest match, labelled "retrieved" instead of "answered".
 
 ```bash
 npx cognitive-mirror@latest init     # writes ~/.cognitive-mirror/.env
@@ -165,7 +170,7 @@ Sonnet for adjudicating merges, Opus for cross-domain insights.
 | Reasoning | **Anthropic API** | Haiku / Sonnet / Opus, tiered by task. |
 | Queue | **`node:sqlite`** | Built in — no native build step, which matters for an npm-installed CLI. |
 | Interactive | **MCP** over stdio + HTTP | 12 tools; OAuth 2.1 when published. |
-| UI | **Next.js + Three.js** | A WebGL sphere; see [apps/visualiser](apps/visualiser). |
+| UI | **Next.js + Three.js** | A WebGL sphere with a navigable interior; see [apps/visualiser](apps/visualiser). |
 
 ## Layout
 

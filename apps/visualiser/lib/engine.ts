@@ -23,6 +23,46 @@ export interface Source {
   label: string;
   id: string;
 }
+
+/** One directly-connected node offered as the next step of a traversal. */
+export interface FocusNeighbour {
+  id: string;
+  title: string;
+  type: string;
+  /** Edge label, already read in the direction the user is travelling. */
+  relation: string;
+  /** false when the edge points at the focused node rather than away from it. */
+  outgoing: boolean;
+  /** false when this neighbour exists in the graph but isn't placed on the sphere. */
+  placed: boolean;
+}
+
+/**
+ * Focus mode (design §"walk the graph"): one node is selected, only its direct
+ * neighbours remain visible, and clicking one of them walks there. `trail` is the
+ * path taken to get here, so a walk can be stepped back.
+ */
+export interface FocusState {
+  id: string;
+  title: string;
+  type: string;
+  domain: string;
+  /** Capped at FOCUS_MAX_NEIGHBOURS; `total` is the real degree. */
+  neighbours: FocusNeighbour[];
+  total: number;
+  trail: Array<{ id: string; title: string }>;
+}
+
+/** User-tunable look of the sphere, persisted by the HUD. */
+export interface GraphAppearance {
+  /** Multiplier on every connection tube's radius. 1 = the tuned default. */
+  linkWidth: number;
+  /** Hex override for data node dots, or null to follow the theme. */
+  nodeColor: string | null;
+  /** Hex override for connection lines, or null to keep the semantic palette. */
+  linkColor: string | null;
+}
+
 export interface ViewState {
   queryInput: string;
   queryState: "idle" | "querying" | "returning" | "answered";
@@ -36,6 +76,12 @@ export interface ViewState {
   sources: Source[];
   /** true when the query had no sufficiently-close match — offer web research. */
   noMatch: boolean;
+  /** true when the answer on screen was synthesised over the graph rather than
+   *  read off the nearest node. The two claim different things, so the UI says
+   *  which one it is instead of labelling both "answered". */
+  answerGrounded: boolean;
+  /** Non-null while traversing: the selected node and the neighbours to step to. */
+  focus: FocusState | null;
 }
 
 /**
@@ -48,9 +94,25 @@ export interface ViewState {
  */
 export type ArcRole = "relates" | "contradicts" | "query";
 
-// Cosine DISTANCE threshold for "this query is actually in the graph" (lower = closer).
-// Above this, the nearest node is too unrelated to claim as an answer.
+// Cosine DISTANCE threshold for "this query is actually in the graph" (lower is
+// closer). Above this the nearest node is too unrelated for the RETRIEVAL
+// fallback to claim it as an answer — it only governs that claim, never whether
+// the question gets answered at all.
 const MATCH_MAX_DISTANCE = 0.4;
+/**
+ * How far out the traversal will still walk.
+ *
+ * Deliberately looser than `MATCH_MAX_DISTANCE`, because a QUESTION embeds
+ * further from every note than the topic it asks about does. "How many repos I
+ * have for ML?" scored 0.411–0.432 against the `machine-learning` repo, the
+ * `Machine Learning Project` concept and `TensorFlow Framework` — exactly the
+ * right nodes, all of them just past a threshold tuned for typing a topic. One
+ * threshold was doing two jobs, and the question-shaped half failed.
+ *
+ * The animation only shows where it looked; what the answer may claim is
+ * decided separately, below.
+ */
+const TRAVERSE_MAX_DISTANCE = 0.55;
 
 export interface GraphNodeDto {
   id: string;
@@ -72,19 +134,147 @@ export interface SearchHit {
   score: number;
 }
 
+/**
+ * A synthesised answer from `/api/answer`. Every failure arrives as
+ * `ok: false` with a reason rather than a thrown error, because the retrieval
+ * hits are already on screen by then — no synthesis means the templated summary
+ * stands, not that the ask failed.
+ */
+export interface AnswerDto {
+  ok: boolean;
+  reason?: string;
+  answer?: string;
+  citations?: Array<{ id: string; title: string; type: string }>;
+  /** false when the answer is "your graph does not hold this" — still a real
+   *  answer, and still the case where offering to research the web is useful. */
+  inGraph?: boolean;
+}
+
 type Patch = Partial<ViewState> | ((s: ViewState) => Partial<ViewState>);
 
-const CLUSTER_DIRS: Array<{ tc: number; pc: number }> = [
-  { tc: 0.4, pc: 1.0 },
-  { tc: 2.4, pc: 0.9 },
-  { tc: 4.7, pc: 1.5 },
-  { tc: 1.5, pc: 2.2 },
-  { tc: 3.6, pc: 0.5 },
-  { tc: 5.6, pc: 1.7 },
-  { tc: 0.9, pc: 2.6 },
-  { tc: 2.9, pc: 2.4 },
-];
+/**
+ * Cluster directions down a golden-angle spiral. The original eight hand-placed
+ * directions were right for a demo graph, but a real one grows to a few hundred
+ * distinct domains and cycling eight slots stacked whole domains on top of each
+ * other — "Cryptography" landed exactly where "Education" already was. The spiral
+ * gives every domain its own evenly-spread direction for any count we reach.
+ */
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+
+/** Van der Corput radical inverse — bit-reversal of `i` mapped into [0,1). */
+function radicalInverse(i: number): number {
+  let bits = i + 1; // +1 so slot 0 isn't exactly on a pole
+  let out = 0;
+  let denom = 1;
+  while (bits > 0) {
+    denom *= 2;
+    out += (bits % 2) / denom;
+    bits = Math.floor(bits / 2);
+  }
+  return out;
+}
+
+/**
+ * Direction for cluster `i`. Longitude walks the golden angle, latitude follows
+ * the radical inverse — which matters because clusters are created lazily, in
+ * whatever order domains first appear. A plain `i / TOTAL` ramp needs the final
+ * count up front, and guessing it high (512 slots for ~300 real domains) packed
+ * every cluster into the top of the sphere and left the bottom bare. The radical
+ * inverse is progressive: any prefix of the sequence already covers the full
+ * sphere, so the layout looks right at 5 domains and at 500.
+ */
+function clusterDir(i: number): { tc: number; pc: number } {
+  const y = 1 - 2 * radicalInverse(i);
+  return { tc: GOLDEN_ANGLE * i, pc: Math.acos(Math.max(-1, Math.min(1, y))) };
+}
+
 const LABELLED_TYPES = new Set(["Concept", "Insight", "Synthesis"]);
+
+/** How many nodes get a sprite. Above this the scene turns into draw-call soup. */
+const MAX_PLACED = 800;
+/**
+ * How many ambient connection arcs are drawn at once.
+ *
+ * A mature graph has well over a thousand cross-domain relations, and drawing
+ * them all produces an opaque gold ball at ANY tube width — the lines stop being
+ * readable as lines. The cap keeps the sphere legible; nothing is lost, because
+ * the arcs were always atmosphere and focus mode is how you actually read a
+ * node's connections. CONTRADICTS is exempt: there are only ever a handful and
+ * "these two notes disagree" is the single most interesting claim on the sphere.
+ */
+const MAX_ARCS = 420;
+/** Neighbours offered in the focus panel; hubs can have hundreds. */
+const FOCUS_MAX_NEIGHBOURS = 48;
+/**
+ * Region labels, for the biggest domains only. A real graph has a few hundred
+ * distinct domain strings; labelling them all turned the sphere into a wall of
+ * text that hid the thing it was annotating.
+ */
+const MAX_CLUSTER_LABELS = 12;
+
+/**
+ * Depth = cross-domain reach. A node whose neighbours all sit in its own domain
+ * stays on the shell; one whose neighbours are scattered across many domains
+ * sinks toward the core, because it belongs to no single surface region.
+ *
+ * Reach is read from the COMPOSITION of a node's neighbourhood, never from where
+ * the layout happened to put things. An earlier version averaged the angle to
+ * each neighbour, which looked principled and measured nothing: cluster
+ * directions come off a golden-angle spiral in order of first appearance, so two
+ * domains are ~90° apart whether they are "cryptography" and "AES" or
+ * "cryptography" and "gardening". That term read 0.95 at the median — it was
+ * detecting "has any out-of-domain neighbour at all", which is nearly everyone,
+ * and it sank the whole graph into one gold ball.
+ *
+ * The two terms that survive are real graph properties:
+ *  - DOMINANCE  1 − (share of neighbours in their most common domain). A node
+ *               with 80% of its links in one domain is not a bridge.
+ *  - VARIETY    how many distinct domains the neighbourhood touches.
+ * Both are inflated by small samples — three neighbours in three domains looks
+ * maximally diverse — so the result is shrunk by a confidence factor on degree.
+ * CONFIDENCE_K is the degree at which a node is credited half its raw reach.
+ */
+const REACH_W_DOMINANCE = 0.5;
+const REACH_W_VARIETY = 0.5;
+const REACH_VARIETY_SAT = 5;
+const CONFIDENCE_K = 4;
+/**
+ * Raw reach is compressed in practice (p90 ≈ 0.44 on a real graph), so it is
+ * divided by this before use. Tuned against the live graph for roughly a quarter
+ * of nodes on the shell, a populated middle, and a seventh of them deep.
+ */
+const REACH_GAIN = 0.55;
+/** Deepest a node may sink, as a fraction of the shell radius. */
+const MAX_SINK = 0.6;
+
+/**
+ * Resting world-space size of a data node dot, before depth and legibility
+ * adjustment. Halved from the original 0.12: at 800 placed nodes the sphere read
+ * as overlapping blobs rather than points.
+ */
+const NODE_BASE = 0.06;
+/**
+ * Short side (css px) of a canvas that needs no legibility compensation. Below
+ * this, marks are scaled up — see `_legibility`.
+ */
+const LEGIBILITY_REF = 820;
+/** >1 keeps the shell populated; a linear map lifted almost everything off it. */
+const SINK_CURVE = 1.25;
+
+/**
+ * Closest automatic framing that still holds the whole sphere, as a multiple of
+ * `_fitZ()`. `_fitZ` frames a half-extent of `R * 1.18` — the shell plus halo
+ * headroom — so the shell itself exactly touches the frame at `1 / 1.18`, and
+ * this leaves 6% over for sprite half-heights and hover growth.
+ *
+ * Every push-in used to be a tuned magic number, and three of them cropped: the
+ * live query at 0.73 cut 16% of the sphere radius off the constrained axis,
+ * focus mode 13%, windowed explore 9%. That read as cinematic while the graph
+ * was a full-bleed background and reads as broken now that it is a discrete
+ * object on the right of the dashboard. Deliberate wheel zoom is still free to
+ * crop — that one is the user's own doing.
+ */
+const FRAME_FLOOR = 1.06 / 1.18;
 
 export class CognitiveMirrorEngine {
   private onView: (v: ViewState) => void;
@@ -93,6 +283,7 @@ export class CognitiveMirrorEngine {
     queryState: "idle",
     showAnswer: false,
     answerText: "",
+    answerGrounded: false,
     traverseStage: "",
     nodeReadout: "connecting…",
     traceLines: [],
@@ -100,6 +291,7 @@ export class CognitiveMirrorEngine {
     speedLabel: "1×",
     sources: [],
     noMatch: false,
+    focus: null,
   };
 
   private mouseX = 0;
@@ -127,8 +319,21 @@ export class CognitiveMirrorEngine {
   private focusQuat: THREE.Quaternion | null = null;
   private speed = 1;
   private lastQuery = "";
+  /** In-flight synthesis for the current question, started as soon as retrieval
+   *  returns so the model thinks while the sphere animates the hops. */
+  private answerPending: Promise<AnswerDto | null> | null = null;
+  /** Bumped by every traversal reset. The reveal awaits a network call, which
+   *  `clearTimeout` cannot take back, so it checks this before writing state —
+   *  otherwise a replay during synthesis gets the abandoned question's answer. */
+  private traversalGen = 0;
   private lastIdleEvent = 0;
   private targetCamZ = 5.8;
+  /** Current framing as a multiple of `_fitZ()`; 1 = the whole sphere in frame. */
+  private camMult = 1;
+  /** true when the graph owns the viewport rather than sitting in its panel. */
+  private fullscreen = false;
+  private _ro: ResizeObserver | null = null;
+  private _resizeArcTimer: any = null;
   private idleToggle = 0;
   private reduceMotion = false;
   private R = 2.5;
@@ -142,8 +347,22 @@ export class CognitiveMirrorEngine {
   private lineMat: any = null;
   private haloMat: any = null;
   private verts: number[][] = [];
-  private nmap: Record<string, { pos: THREE.Vector3; cl: number }> = {};
+  /** Placed nodes: world position, cluster index, and `depth` (0 shell → 1 core). */
+  private nmap: Record<string, { pos: THREE.Vector3; cl: number; depth: number }> = {};
   private nodeMeta: Record<string, GraphNodeDto> = {};
+  /**
+   * The surface direction a node would sit at if it had no cross-domain pull —
+   * its cluster direction plus its own deterministic jitter. Kept separately from
+   * `nmap` because depth is computed FROM these, so they all have to exist first.
+   */
+  private baseDirs: Record<string, THREE.Vector3> = {};
+  /**
+   * Full adjacency over every edge type, including edges whose endpoints never
+   * got a sprite. Focus mode walks this, not the drawn arcs — `MENTIONS` and
+   * `DERIVED_FROM` are real connections even though drawing them all would bury
+   * the sphere.
+   */
+  private adj = new Map<string, Map<string, { type: string; outgoing: boolean }>>();
   private sprites: Record<string, any> = {};
   private labels: any[] = [];
   private nodeLabels: any[] = [];
@@ -152,6 +371,20 @@ export class CognitiveMirrorEngine {
   private clusterIndex = new Map<string, number>();
   private arcKeys = new Set<string>();
   private labelledCount = 0;
+  /** Domain keys big enough to earn a region label this load. */
+  private labelKeys = new Set<string>();
+
+  // ── appearance (user-tunable from the graph widget) ──────────────────────
+  private linkWidth = 1;
+  private nodeColorOverride: string | null = null;
+  private linkColorOverride: string | null = null;
+  private arcRebuildQueued = false;
+
+  // ── focus mode (walk the graph one hop at a time) ────────────────────────
+  private focusId: string | null = null;
+  private focusSet = new Set<string>();
+  private focusArcs: any[] = [];
+  private focusTrail: Array<{ id: string; title: string }> = [];
   private _dotShared: any = null;
   private rafId = 0;
   private uScale = 1;
@@ -173,9 +406,17 @@ export class CognitiveMirrorEngine {
     return this.dark ? this.GOLD_DARK : this.GOLD_LIGHT;
   }
 
-  /** The colour a persistent arc should currently be, given what it represents. */
+  /**
+   * The colour a persistent arc should currently be, given what it represents.
+   * A user link colour replaces the gold of ordinary connections — the colour
+   * that covers the overwhelming majority of arcs — but leaves `contradicts`
+   * crimson and `query` cyan alone, because those two carry meaning a palette
+   * preference shouldn't be able to erase.
+   */
   private _arcColor(role: ArcRole): string {
-    return role === "contradicts" ? this.CRIMSON : role === "query" ? this.CYAN : this._gold();
+    if (role === "contradicts") return this.CRIMSON;
+    if (role === "query") return this.CYAN;
+    return this.linkColorOverride ?? this._gold();
   }
 
   // Theme: light renders dark-ink dots on a white sphere; dark inverts the
@@ -187,6 +428,75 @@ export class CognitiveMirrorEngine {
     return this.dark ? 0xe6e9f0 : 0x0c0c0c;
   }
 
+  /** Colour for data node dots — the user's override if set, else the theme's. */
+  private _nodeColor(): THREE.ColorRepresentation {
+    return this.nodeColorOverride ?? this._fg();
+  }
+
+  // ── appearance controls (driven by the graph widget) ──────────────────────
+  /** Scale every connection tube. 1 = the tuned default; clamped to a sane range. */
+  setLinkWidth(mult: number) {
+    const next = Math.max(0.25, Math.min(5, Number.isFinite(mult) ? mult : 1));
+    if (next === this.linkWidth) return;
+    this.linkWidth = next;
+    this._queueArcRebuild();
+  }
+
+  /** Recolour data nodes. `null` restores the theme default. */
+  setNodeColor(hex: string | null) {
+    this.nodeColorOverride = hex;
+    const c = this._nodeColor();
+    for (const id in this.sprites) this.sprites[id]?.material?.color?.set(c);
+  }
+
+  /** Recolour ordinary connection lines. `null` restores the gold palette. */
+  setLinkColor(hex: string | null) {
+    this.linkColorOverride = hex;
+    for (const a of this.arcs) a.mat.color.set(this._arcColor(a.role));
+    for (const a of this.focusArcs) a.mat.color.set(this._arcColor(a.role));
+  }
+
+  getAppearance(): GraphAppearance {
+    return {
+      linkWidth: this.linkWidth,
+      nodeColor: this.nodeColorOverride,
+      linkColor: this.linkColorOverride,
+    };
+  }
+
+  /** Apply a whole saved appearance at once (on mount, from localStorage). */
+  applyAppearance(a: Partial<GraphAppearance>) {
+    if (typeof a.linkWidth === "number") this.setLinkWidth(a.linkWidth);
+    if (a.nodeColor !== undefined) this.setNodeColor(a.nodeColor);
+    if (a.linkColor !== undefined) this.setLinkColor(a.linkColor);
+  }
+
+  /**
+   * Tube radius is baked into geometry, so a width change means rebuilding every
+   * arc. Coalesced to one rebuild per frame so dragging the slider doesn't
+   * regenerate a thousand tubes per pointer-move event.
+   */
+  private _queueArcRebuild() {
+    if (this.arcRebuildQueued) return;
+    this.arcRebuildQueued = true;
+    requestAnimationFrame(() => {
+      this.arcRebuildQueued = false;
+      for (const a of this.arcs.concat(this.focusArcs)) this._regenArc(a);
+    });
+  }
+
+  private _regenArc(a: { mesh: THREE.Mesh; curve: any; base: number }) {
+    const geo = new this.T.TubeGeometry(
+      a.curve,
+      40,
+      a.base * this.linkWidth * this._legibility(),
+      8,
+      false,
+    );
+    a.mesh.geometry.dispose();
+    a.mesh.geometry = geo;
+  }
+
   constructor(onView: (v: ViewState) => void) {
     this.onView = onView;
     this.onMove = this.onMove.bind(this);
@@ -195,6 +505,17 @@ export class CognitiveMirrorEngine {
     this._onPointerMove = this._onPointerMove.bind(this);
     this._onPointerUp = this._onPointerUp.bind(this);
     this._onWheel = this._onWheel.bind(this);
+  }
+
+  /**
+   * Set the camera framing as a multiple of "whole sphere in frame", clamped at
+   * `FRAME_FLOOR` so no automatic move crops the sphere. The clamped value is
+   * what gets stored, so a later re-measure on resize reproduces this framing
+   * rather than re-deriving it from a multiplier that was never honoured.
+   */
+  private _frame(mult: number) {
+    this.camMult = Math.max(FRAME_FLOOR, mult);
+    this.targetCamZ = this._zoom(this.camMult);
   }
 
   /** React passes the node-detail opener so a click on the sphere opens the card. */
@@ -210,10 +531,10 @@ export class CognitiveMirrorEngine {
     if (this.dotMat?.uniforms?.uDark) this.dotMat.uniforms.uDark.value = u;
     if (this.haloMat?.uniforms?.uDark) this.haloMat.uniforms.uDark.value = u;
     if (this.lineMat?.uniforms?.uDark) this.lineMat.uniforms.uDark.value = u;
-    const fg = this._fg();
+    const fg = this._nodeColor();
     for (const id in this.sprites) this.sprites[id]?.material?.color?.set(fg);
     // Gold is theme-dependent, so persistent arcs have to be re-tinted too.
-    for (const a of this.arcs) a.mat.color.set(this._arcColor(a.role));
+    for (const a of this.arcs.concat(this.focusArcs)) a.mat.color.set(this._arcColor(a.role));
     this._applyTint();
     this._rebuildLabels();
   }
@@ -241,6 +562,9 @@ export class CognitiveMirrorEngine {
 
   dispose() {
     cancelAnimationFrame(this.rafId);
+    this._ro?.disconnect();
+    this._ro = null;
+    clearTimeout(this._resizeArcTimer);
     this._timers.forEach((id) => {
       clearTimeout(id);
     });
@@ -251,6 +575,7 @@ export class CognitiveMirrorEngine {
     window.removeEventListener("pointerup", this._onPointerUp);
     window.removeEventListener("wheel", this._onWheel);
     document.body.style.cursor = "";
+    this._releaseSelection();
     if (this.renderer) {
       this.renderer.dispose();
       this.renderer = null;
@@ -316,15 +641,30 @@ export class CognitiveMirrorEngine {
    *  spin, unblur — so drag/zoom/click feel like handling a real object. */
   enterGraph() {
     this.explore = true;
-    this.targetCamZ = this.reduceMotion ? 5.0 : 4.6;
+    this._frame(this.reduceMotion ? 0.95 : FRAME_FLOOR);
     const mount = document.getElementById("cm-canvas-mount");
     if (mount) mount.style.filter = "blur(0px)";
   }
 
+  /** The widget expanded or collapsed — reframe so the sphere fits its new canvas. */
+  setFullscreen(full: boolean) {
+    this.fullscreen = full;
+    // Fullscreen has the whole viewport to work with, so it frames wider than the
+    // windowed explore zoom — that one is tuned for a canvas constrained on its
+    // long axis and crops the sphere top and bottom when given a 4:3 viewport.
+    if (full && this.explore) this._frame(this.reduceMotion ? 1 : 0.94);
+    // The mount is mid-transition; re-measure once it has settled as well.
+    this._onResize();
+    setTimeout(() => this._onResize(), 420);
+  }
+
   exitGraph() {
+    this.clearFocus();
     this.explore = false;
-    this.targetCamZ = 5.8;
+    this._frame(1);
     this.hoverId = null;
+    this.dragging = false;
+    this._releaseSelection();
     this.velX = this.velY = 0;
     document.body.style.cursor = "";
     const mount = document.getElementById("cm-canvas-mount");
@@ -377,14 +717,28 @@ export class CognitiveMirrorEngine {
     }
   }
 
-  /** Initial full load: clear and place all nodes (no spawn flash). */
+  /**
+   * Initial full load: clear and place all nodes (no spawn flash).
+   *
+   * Three phases, in this order for a reason. Depth is derived from where a
+   * node's NEIGHBOURS sit, so every node needs a surface direction before any
+   * node can be given its final radius, and arcs need final positions.
+   */
   loadData(data: { nodes: GraphNodeDto[]; edges: GraphEdgeDto[] }) {
     if (!this.renderer || this.verts.length === 0) {
       setTimeout(() => this.loadData(data), 150); // GL not ready yet
       return;
     }
     this._clearData();
-    for (const n of data.nodes.slice(0, 400)) this._placeNode(n, false);
+    this._indexEdges(data.edges);
+    // Metadata for EVERY node, not just the ones that get a sprite — focus mode
+    // has to be able to name a neighbour that fell outside the drawn slice, or it
+    // silently under-reports a node's connections.
+    for (const n of data.nodes) this.nodeMeta[n.id] = n;
+    const placing = data.nodes.slice(0, MAX_PLACED);
+    this.labelKeys = this._topDomains(placing);
+    for (const n of placing) this._prepareNode(n);
+    for (const n of placing) this._placeNode(n, false);
     for (const e of data.edges) this._addArc(e);
     this.dataLoaded = data.nodes.length > 0;
   }
@@ -396,16 +750,51 @@ export class CognitiveMirrorEngine {
    */
   mergeData(data: { nodes: GraphNodeDto[]; edges: GraphEdgeDto[] }): number {
     if (!this.renderer || this.verts.length === 0) return 0;
-    let added = 0;
-    for (const n of data.nodes.slice(0, 600)) {
-      if (!this.nodeMeta[n.id]) {
-        this._placeNode(n, true);
-        added++;
-      }
-    }
+    this._indexEdges(data.edges);
+    for (const n of data.nodes) this.nodeMeta[n.id] = n;
+    // Keyed on nmap, not nodeMeta: meta now exists for undrawn nodes too.
+    const fresh = data.nodes.slice(0, MAX_PLACED).filter((n) => !this.nmap[n.id]);
+    // Same two phases as loadData: a batch of new nodes that reference each other
+    // needs every base direction in place before any of them is given a depth.
+    for (const n of fresh) this._prepareNode(n);
+    for (const n of fresh) this._placeNode(n, true);
     for (const e of data.edges) this._addArc(e);
-    if (added > 0) this.dataLoaded = true;
-    return added;
+    if (fresh.length > 0) this.dataLoaded = true;
+    return fresh.length;
+  }
+
+  /** The domain keys with the most nodes — the only ones that get a region label. */
+  private _topDomains(nodes: GraphNodeDto[]): Set<string> {
+    const counts = new Map<string, number>();
+    for (const n of nodes) {
+      const k = this._keyOf(n);
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    return new Set(
+      [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, MAX_CLUSTER_LABELS)
+        .map(([k]) => k),
+    );
+  }
+
+  /** Record every edge in both directions so focus mode can walk either way. */
+  private _indexEdges(edges: GraphEdgeDto[]) {
+    for (const e of edges) {
+      if (!e.from || !e.to || e.from === e.to) continue;
+      let out = this.adj.get(e.from);
+      if (!out) {
+        out = new Map();
+        this.adj.set(e.from, out);
+      }
+      if (!out.has(e.to)) out.set(e.to, { type: e.type, outgoing: true });
+      let back = this.adj.get(e.to);
+      if (!back) {
+        back = new Map();
+        this.adj.set(e.to, back);
+      }
+      if (!back.has(e.from)) back.set(e.from, { type: e.type, outgoing: false });
+    }
   }
 
   private _keyOf(n: GraphNodeDto): string {
@@ -422,9 +811,10 @@ export class CognitiveMirrorEngine {
     const existing = this.clusterIndex.get(key);
     if (existing !== undefined) return existing;
     const idx = this.clusters.length;
-    const d = CLUSTER_DIRS[idx % CLUSTER_DIRS.length]!;
+    const d = clusterDir(idx);
     this.clusters.push({ name: key, tc: d.tc, pc: d.pc });
     this.clusterIndex.set(key, idx);
+    if (!this.labelKeys.has(key)) return idx; // a long-tail domain: cluster, no label
     const T = this.T;
     const dir = new T.Vector3(
       Math.sin(d.pc) * Math.cos(d.tc),
@@ -447,9 +837,13 @@ export class CognitiveMirrorEngine {
     return idx;
   }
 
-  private _placeNode(n: GraphNodeDto, spawn: boolean) {
-    if (this.nodeMeta[n.id]) return;
-    const T = this.T;
+  /**
+   * Phase one of layout: give the node its cluster and the surface direction it
+   * would occupy on a flat, shell-only sphere. No geometry yet — depth needs
+   * every node in the batch to have one of these first.
+   */
+  private _prepareNode(n: GraphNodeDto) {
+    if (this.baseDirs[n.id]) return;
     const ci = this._ensureCluster(this._keyOf(n));
     const cl = this.clusters[ci]!;
     const h = hash(n.id);
@@ -457,30 +851,78 @@ export class CognitiveMirrorEngine {
     const dp = (((h >> 10) % 1000) / 1000 - 0.5) * 1.3;
     const th = cl.tc + dt;
     const ph = cl.pc + dp;
-    const dir = new T.Vector3(
+    this.baseDirs[n.id] = new this.T.Vector3(
       Math.sin(ph) * Math.cos(th),
       Math.cos(ph),
       Math.sin(ph) * Math.sin(th),
-    );
-    let best = this.verts[0]!;
-    let bd = 1e9;
-    for (const v of this.verts) {
-      const dx = v[0]! - dir.x * this.R;
-      const dy = v[1]! - dir.y * this.R;
-      const dz = v[2]! - dir.z * this.R;
-      const d = dx * dx + dy * dy + dz * dz;
-      if (d < bd) {
-        bd = d;
-        best = v;
-      }
-    }
-    const pos = new T.Vector3(best[0], best[1], best[2]);
-    this.nmap[n.id] = { pos, cl: ci };
+    ).normalize();
     this.nodeMeta[n.id] = n;
+    (this.nodeMeta[n.id] as any).__cl = ci; // only drawn nodes carry a cluster
+  }
+
+  /**
+   * How far a node's connections reach, in [0,1] — the sphere's third dimension.
+   *
+   * Two things make an idea "deep": its neighbours sit a long way round the
+   * sphere from it (distance), and they sit in many different places rather than
+   * one (spread). A note about Git that only links to other Git notes scores 0
+   * and stays on the shell. A note like "append-only logs" that links to
+   * databases, event sourcing and audit compliance scores high and sinks toward
+   * the core, where the graph's genuine bridge concepts collect.
+   *
+   * Returns `{ reach, pull }` — `pull` is the neighbourhood's mean direction, used
+   * to slide the node toward the domains it bridges as it sinks, so it ends up
+   * physically between them rather than merely deeper under its own cluster.
+   */
+  private _reachOf(id: string): { reach: number; pull: THREE.Vector3 | null } {
+    const own = this.baseDirs[id];
+    const nbrs = this.adj.get(id);
+    if (!own || !nbrs || nbrs.size < 2) return { reach: 0, pull: null };
+    const pull = new this.T.Vector3();
+    const perCluster = new Map<number, number>();
+    let seen = 0;
+    for (const nid of nbrs.keys()) {
+      const d = this.baseDirs[nid];
+      if (!d) continue; // neighbour isn't on the sphere — it can't pull
+      seen++;
+      pull.add(d);
+      const ci = (this.nodeMeta[nid] as any)?.__cl;
+      if (typeof ci === "number") perCluster.set(ci, (perCluster.get(ci) ?? 0) + 1);
+    }
+    if (seen < 2 || perCluster.size === 0) return { reach: 0, pull: null };
+
+    const biggest = Math.max(...perCluster.values());
+    const dominance = 1 - biggest / seen;
+    const variety = Math.min(1, (perCluster.size - 1) / REACH_VARIETY_SAT);
+    const confidence = seen / (seen + CONFIDENCE_K);
+    const raw = confidence * (REACH_W_DOMINANCE * dominance + REACH_W_VARIETY * variety);
+    const reach = Math.max(0, Math.min(1, raw / REACH_GAIN));
+    return { reach, pull: pull.lengthSq() > 1e-6 ? pull.normalize() : null };
+  }
+
+  /** Phase two: resolve depth, build the sprite, and label it if it earns one. */
+  private _placeNode(n: GraphNodeDto, spawn: boolean) {
+    if (this.nmap[n.id]) return;
+    const T = this.T;
+    this._prepareNode(n);
+    const base = this.baseDirs[n.id]!;
+    const ci = ((this.nodeMeta[n.id] as any).__cl as number) ?? 0;
+
+    const { reach, pull } = this._reachOf(n.id);
+    // Slide toward the neighbourhood as it sinks: a bridge concept should sit
+    // between the regions it joins, not merely below its own one.
+    const dir = base.clone();
+    if (pull && reach > 0) dir.lerp(pull, 0.45 * reach);
+    if (dir.lengthSq() < 1e-6) dir.copy(base);
+    dir.normalize();
+    const radius = this.R * (1 - MAX_SINK * reach ** SINK_CURVE);
+    const pos = dir.multiplyScalar(radius);
+
+    this.nmap[n.id] = { pos, cl: ci, depth: reach };
     const sp = new T.Sprite(
       new T.SpriteMaterial({
         map: this._sharedDot(),
-        color: this._fg(),
+        color: this._nodeColor(),
         transparent: true,
         opacity: 1,
         depthTest: false,
@@ -488,10 +930,12 @@ export class CognitiveMirrorEngine {
       }),
     );
     sp.position.copy(pos);
-    sp.scale.setScalar(spawn ? 0.01 : 0.12);
+    sp.scale.setScalar(spawn ? 0.01 : this._nodeScale(n.id));
     this.group.add(sp);
     this.sprites[n.id] = sp;
-    if (LABELLED_TYPES.has(n.type) && this.labelledCount < 60) {
+    // Interior nodes are seen through the shell, so they'd clutter it with text;
+    // only shell-ish nodes get a label.
+    if (LABELLED_TYPES.has(n.type) && this.labelledCount < 60 && reach < 0.45) {
       this.labelledCount++;
       const kind = n.type === "Insight" ? "insight" : "node";
       const lab = new T.Sprite(
@@ -503,14 +947,20 @@ export class CognitiveMirrorEngine {
           depthWrite: false,
         }),
       );
-      const off = dir.clone().multiplyScalar(this.R + 0.34);
+      const off = base.clone().multiplyScalar(this.R + 0.34);
       off.y += 0.12;
       lab.position.copy(off);
       lab.scale.set(1.0, 0.156, 1);
       this.group.add(lab);
-      this.nodeLabels.push({ sprite: lab, dir, text: n.title, size: 24, kind });
+      this.nodeLabels.push({ sprite: lab, dir: base, text: n.title, size: 24, kind });
     }
     if (spawn) this._flash(n.id, 2.8, performance.now() / 1000); // pop into existence
+  }
+
+  /** Resting sprite size — deeper nodes shrink slightly so the shell stays readable. */
+  private _nodeScale(id: string): number {
+    const d = this.nmap[id]?.depth ?? 0;
+    return NODE_BASE * (1 - 0.25 * d) * this._legibility();
   }
 
   /** Cross-domain RELATES_TO (gold) + CONTRADICTS (crimson) arcs — deduped. */
@@ -526,13 +976,152 @@ export class CognitiveMirrorEngine {
         this.arcs.push(arc);
         this.arcKeys.add(key);
       }
-    } else if (e.type === "RELATES_TO" && a.domain && b.domain && a.domain !== b.domain) {
+    } else if (
+      e.type === "RELATES_TO" &&
+      a.domain &&
+      b.domain &&
+      a.domain !== b.domain &&
+      this.arcs.length < MAX_ARCS
+    ) {
       const arc = this._makeArc(e.from, e.to, 0.007, "relates");
       if (arc) {
         this.arcs.push(arc);
         this.arcKeys.add(key);
       }
     }
+  }
+
+  // ── focus mode: walk the graph one hop at a time ──────────────────────────
+  /**
+   * Isolate one node and its direct neighbours. Everything else on the sphere is
+   * hidden — not dimmed — because the point is to answer "what is this actually
+   * connected to?" without a thousand unrelated dots arguing with the answer.
+   *
+   * `step` continues an existing walk (pushing the previous node onto the trail);
+   * a fresh selection starts a new one.
+   */
+  focusNode(id: string, step = false) {
+    const meta = this.nodeMeta[id];
+    if (!meta || !this.nmap[id]) return;
+    if (step && this.focusId && this.focusId !== id) {
+      const prev = this.nodeMeta[this.focusId];
+      if (prev) this.focusTrail = [...this.focusTrail, { id: this.focusId, title: prev.title }];
+    } else if (!step) {
+      this.focusTrail = [];
+    }
+
+    this._clearFocusGeometry();
+    this.focusId = id;
+
+    const nbrs = this.adj.get(id) ?? new Map();
+    const all: FocusNeighbour[] = [];
+    for (const [nid, e] of nbrs) {
+      const nm = this.nodeMeta[nid];
+      if (!nm) continue; // in the graph but outside the placed slice
+      all.push({
+        id: nid,
+        title: nm.title,
+        type: nm.type,
+        relation: e.type,
+        outgoing: e.outgoing,
+        placed: !!this.nmap[nid],
+      });
+    }
+    // Rank by how much the edge says: a contradiction is the most interesting
+    // thing one note can claim about another, a bare mention the least.
+    const weight = (r: string) =>
+      r === "CONTRADICTS" ? 0 : r === "RELATES_TO" ? 1 : r === "DERIVED_FROM" ? 2 : 3;
+    all.sort((a, b) => weight(a.relation) - weight(b.relation) || a.title.localeCompare(b.title));
+    const neighbours = all.slice(0, FOCUS_MAX_NEIGHBOURS);
+
+    this.focusSet = new Set(neighbours.filter((n) => n.placed).map((n) => n.id));
+    this.focusSet.add(id);
+
+    // Only the focused node's own connections are drawn, each as its own arc.
+    for (const n of neighbours) {
+      if (!n.placed) continue;
+      const role: ArcRole = n.relation === "CONTRADICTS" ? "contradicts" : "relates";
+      const arc = this._makeArc(id, n.id, role === "contradicts" ? 0.011 : 0.008, role);
+      if (arc) this.focusArcs.push(arc);
+    }
+
+    this._applyFocusVisibility();
+    this._focusNode(id); // swing it to the front
+    this._frame(this.reduceMotion ? 0.95 : FRAME_FLOOR);
+    this.explore = true;
+    const mount = document.getElementById("cm-canvas-mount");
+    if (mount) mount.style.filter = "blur(0px)";
+    this._flash(id, 2.4, performance.now() / 1000);
+
+    this.setState({
+      focus: {
+        id,
+        title: meta.title,
+        type: meta.type,
+        domain: meta.domain,
+        neighbours,
+        total: all.length,
+        trail: this.focusTrail,
+      },
+    });
+  }
+
+  /**
+   * Step back to the previous node of the walk; clears focus at the start.
+   * Returns the node landed on so the caller can bring its detail card along.
+   */
+  focusBack(): string | null {
+    const prev = this.focusTrail[this.focusTrail.length - 1];
+    if (!prev) {
+      this.clearFocus();
+      return null;
+    }
+    this.focusTrail = this.focusTrail.slice(0, -1);
+    const back = this.focusTrail;
+    this.focusNode(prev.id, false);
+    // focusNode(step=false) wipes the trail, so restore the shortened one.
+    this.focusTrail = back;
+    this.setState((st) => ({ focus: st.focus ? { ...st.focus, trail: back } : null }));
+    return prev.id;
+  }
+
+  clearFocus() {
+    if (!this.focusId) return;
+    this._clearFocusGeometry();
+    this.focusId = null;
+    this.focusSet = new Set();
+    this.focusTrail = [];
+    this._applyFocusVisibility();
+    this.focusQuat = null;
+    this.setState({ focus: null });
+  }
+
+  isFocused(): boolean {
+    return this.focusId !== null;
+  }
+
+  private _clearFocusGeometry() {
+    for (const a of this.focusArcs) {
+      this.group?.remove(a.mesh);
+      a.mesh.geometry?.dispose?.();
+      a.mat?.dispose?.();
+    }
+    this.focusArcs = [];
+  }
+
+  /**
+   * Show exactly the focused neighbourhood, or restore everything. Persistent
+   * arcs and labels go with it — a gold shell of unrelated connections in front
+   * of the three nodes you asked about defeats the purpose.
+   */
+  private _applyFocusVisibility() {
+    const on = this.focusId !== null;
+    for (const id in this.sprites) {
+      this.sprites[id].visible = !on || this.focusSet.has(id);
+    }
+    for (const a of this.arcs) a.mesh.visible = !on;
+    for (const l of this.nodeLabels) l.sprite.visible = !on;
+    for (const l of this.labels) l.sprite.visible = !on;
   }
 
   setReadout(text: string) {
@@ -557,9 +1146,12 @@ export class CognitiveMirrorEngine {
     for (const id in this.sprites) this.group?.remove(this.sprites[id]);
     for (const l of this.labels.concat(this.nodeLabels)) this.group?.remove(l.sprite);
     for (const a of this.arcs) this.group?.remove(a.mesh);
+    this._clearFocusGeometry();
     this.sprites = {};
     this.nmap = {};
     this.nodeMeta = {};
+    this.baseDirs = {};
+    this.adj = new Map();
     this.labels = [];
     this.nodeLabels = [];
     this.arcs = [];
@@ -567,6 +1159,7 @@ export class CognitiveMirrorEngine {
     this.clusterIndex = new Map();
     this.arcKeys = new Set();
     this.labelledCount = 0;
+    this.labelKeys = new Set();
   }
 
   private _applyTint() {
@@ -603,6 +1196,8 @@ export class CognitiveMirrorEngine {
   }
 
   private onMove(e: MouseEvent) {
+    // Normalised against the window: this drives the HUD's parallax as well as
+    // the camera's, and the HUD is still the whole page.
     this.mouseX = (e.clientX / innerWidth - 0.5) * 2;
     this.mouseY = (e.clientY / innerHeight - 0.5) * 2;
     const h = document.getElementById("cm-hud");
@@ -615,14 +1210,26 @@ export class CognitiveMirrorEngine {
   // ── direct manipulation (orbit / zoom / select) ───────────────────────────────
   /** A pointer event over empty sphere space (the HUD backdrop or canvas), not a
    *  HUD widget — so dragging a card or clicking a button never moves the sphere. */
-  private _isSphereSpace(e: { target: EventTarget | null }): boolean {
+  private _isSphereSpace(e: { target: EventTarget | null; clientX?: number; clientY?: number }) {
     const t = e.target as HTMLElement | null;
     if (!t) return false;
-    return (
-      t.id === "cm-hud" ||
+    if (
+      t.tagName === "CANVAS" ||
       t.id === "cm-canvas-mount" ||
       t.id === "cm-tint" ||
-      t.tagName === "CANVAS"
+      t.id === "cm-stage"
+    )
+      return true;
+    // The sphere is a BACKGROUND element again, so #cm-hud lies over it and
+    // swallows every pointer event aimed at it. Treat the HUD backdrop as sphere
+    // space, but only where the canvas actually is — otherwise dragging empty
+    // space on the left half would spin a sphere sitting over on the right.
+    if (t.id !== "cm-hud") return false;
+    if (this.fullscreen) return true;
+    const r = this.renderer?.domElement.getBoundingClientRect();
+    if (!r || e.clientX === undefined || e.clientY === undefined) return false;
+    return (
+      e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
     );
   }
 
@@ -630,8 +1237,28 @@ export class CognitiveMirrorEngine {
     return this.state.queryState === "querying" || this.state.queryState === "returning";
   }
 
+  /**
+   * Whether the sphere accepts orbit / zoom / click at all.
+   *
+   * On the dashboard the graph is ambient wallpaper sitting behind the HUD, and
+   * reacting to every stray drag across it was noise — you'd knock it out of
+   * alignment reaching for a card. It becomes interactive only once it has been
+   * opened, which `enterGraph` marks and `exitGraph` clears.
+   */
+  private _interactive(): boolean {
+    return this.explore;
+  }
+
   private _onPointerDown(e: PointerEvent) {
-    if (this._busy() || !this._isSphereSpace(e)) return;
+    if (!this._interactive() || this._busy() || !this._isSphereSpace(e)) return;
+    // The sphere sits BEHIND the HUD, so a drag across it is, to the browser, a
+    // drag across the glass cards on top — which selects their text and leaves
+    // it highlighted. Suppressing the default pointerdown stops the selection
+    // from starting; the user-select lock covers the rest of the gesture.
+    e.preventDefault();
+    document.body.style.userSelect = "none";
+    (document.body.style as CSSStyleDeclaration & { webkitUserSelect?: string }).webkitUserSelect =
+      "none";
     this.dragging = true;
     this.didDrag = false;
     this.downPX = this.lastPX = e.clientX;
@@ -667,13 +1294,25 @@ export class CognitiveMirrorEngine {
       }
     }
     this.dragging = false;
+    this._releaseSelection();
+  }
+
+  /** Give text selection back once the gesture is over. */
+  private _releaseSelection() {
+    document.body.style.userSelect = "";
+    (document.body.style as CSSStyleDeclaration & { webkitUserSelect?: string }).webkitUserSelect =
+      "";
   }
 
   private _onWheel(e: WheelEvent) {
-    if (this._busy() || !this._isSphereSpace(e)) return;
+    if (!this._interactive() || this._busy() || !this._isSphereSpace(e)) return;
     e.preventDefault();
-    const step = e.deltaY > 0 ? 0.45 : -0.45;
-    this.targetCamZ = Math.max(3.0, Math.min(9.0, this.targetCamZ + step));
+    const fit = this._fitZ();
+    const step = (e.deltaY > 0 ? 0.08 : -0.08) * fit;
+    // Clamped against the fitting distance so the limits mean the same thing in
+    // the panel as at fullscreen.
+    this.targetCamZ = Math.max(fit * 0.5, Math.min(fit * 1.6, this.targetCamZ + step));
+    this.camMult = this.targetCamZ / fit;
   }
 
   /** Trackball-style world-space rotation: yaw about world-Y, pitch about world-X. */
@@ -693,10 +1332,17 @@ export class CognitiveMirrorEngine {
     let bestD = 24 * 24; // px² hit radius
     for (const id in this.sprites) {
       const n = this.nmap[id];
-      if (!n) continue;
+      if (!n || !this.sprites[id].visible) continue;
       const wp = n.pos.clone().applyQuaternion(this.group.quaternion);
-      // skip nodes on the far side of the sphere
-      if (wp.clone().normalize().dot(this.cam.position.clone().sub(wp).normalize()) < 0) continue;
+      // Skip nodes hidden on the far side — but only shell nodes. An interior one
+      // is visible straight through the sphere, so culling it by hemisphere would
+      // make the core unclickable.
+      const shellBound = wp.length() > this.R * 0.72;
+      if (
+        shellBound &&
+        wp.clone().normalize().dot(this.cam.position.clone().sub(wp).normalize()) < 0
+      )
+        continue;
       v.copy(wp).project(this.cam);
       if (v.z >= 1) continue;
       const sx = (v.x * 0.5 + 0.5) * rect.width + rect.left;
@@ -713,7 +1359,8 @@ export class CognitiveMirrorEngine {
   }
 
   private _updateHover(e: PointerEvent) {
-    const id = this._isSphereSpace(e) ? this._pickNode(e.clientX, e.clientY) : null;
+    const id =
+      this._interactive() && this._isSphereSpace(e) ? this._pickNode(e.clientX, e.clientY) : null;
     if (id === this.hoverId) return;
     this.hoverId = id;
     document.body.style.cursor = id ? "pointer" : "";
@@ -733,17 +1380,73 @@ export class CognitiveMirrorEngine {
     }
   }
 
+  /**
+   * The canvas is sized by its MOUNT, not the window — the graph lives in a panel
+   * on the dashboard and only fills the viewport when expanded.
+   */
+  private _canvasSize(): { w: number; h: number } {
+    const mount = document.getElementById("cm-canvas-mount");
+    const w = mount?.clientWidth || (typeof window === "undefined" ? 1 : innerWidth);
+    const h = mount?.clientHeight || (typeof window === "undefined" ? 1 : innerHeight);
+    return { w: Math.max(1, w), h: Math.max(1, h) };
+  }
+
+  /**
+   * Mark-size multiplier for small canvases. Everything in the scene is in world
+   * units, so shrinking the canvas shrinks every dot and tube with it — in the
+   * dashboard panel the sphere became an unreadable smudge. Marks are scaled back
+   * up sub-linearly (^0.6): enough to stay legible, not so much that the panel
+   * turns back into overlapping blobs. 1× on any comfortably large canvas.
+   */
+  private _legibility(): number {
+    const { w, h } = this._canvasSize();
+    const short = Math.min(w, h);
+    return Math.max(1, Math.min(2.4, (LEGIBILITY_REF / short) ** 0.6));
+  }
+
+  /**
+   * Distance at which the sphere and its halo exactly fill the canvas. Every
+   * camera move is a multiple of this rather than an absolute Z, so the same
+   * framing holds in a 300px panel and at fullscreen.
+   */
+  private _fitZ(): number {
+    const { w, h } = this._canvasSize();
+    const fov = this.cam?.fov ?? 52;
+    const tanV = Math.tan((fov * Math.PI) / 360);
+    const tanH = tanV * (w / h);
+    return (this.R * 1.18) / Math.max(1e-3, Math.min(tanV, tanH));
+  }
+
+  /**
+   * A framing distance. `mult` < 1 pushes in; 1 is the whole sphere in frame.
+   *
+   * This used to ease every zoom back toward the fitting distance on canvases
+   * under 520px, on the grounds that a small panel has no room to crop into —
+   * which was the right observation applied to the wrong axis. A canvas has no
+   * room to crop into at any size, so the limit belongs in `_frame` as a floor
+   * on the multiplier, not here as a size-conditional fudge. This is now just
+   * the multiplier-to-distance map.
+   */
+  private _zoom(mult: number): number {
+    return this._fitZ() * mult;
+  }
+
   private _onResize() {
     if (!this.renderer) return;
-    const W2 = innerWidth;
-    const H2 = innerHeight;
+    const { w, h } = this._canvasSize();
     const d2 = Math.min(devicePixelRatio, 2);
-    this.renderer.setSize(W2, H2);
-    this.cam.aspect = W2 / H2;
+    this.renderer.setSize(w, h);
+    this.cam.aspect = w / h;
     this.cam.updateProjectionMatrix();
-    this.uScale = H2 * d2 * 0.5;
+    this.uScale = h * d2 * 0.5 * this._legibility();
     if (this.dotMat) this.dotMat.uniforms.uScale.value = this.uScale;
     if (this.haloMat) this.haloMat.uniforms.uScale.value = this.uScale;
+    // Resting distances are relative to the canvas, so re-derive the current one.
+    this.targetCamZ = this._zoom(this.camMult);
+    // Tube radius is baked into geometry and legibility just changed with it.
+    // Debounced: a CSS size transition fires the observer every frame.
+    clearTimeout(this._resizeArcTimer);
+    this._resizeArcTimer = setTimeout(() => this._queueArcRebuild(), 180);
   }
 
   private rng(seed: number) {
@@ -755,13 +1458,21 @@ export class CognitiveMirrorEngine {
   }
 
   // ── textures ────────────────────────────────────────────────────────────────
+  /**
+   * The dot sprite/point mask. WHITE, not black — `SpriteMaterial` multiplies the
+   * texture's RGB by `color`, so a black texel renders black whatever colour is
+   * set on it. This was filled `#000`, which silently pinned every data node to
+   * black: the dark theme's lighter node colour never showed, and neither would
+   * the widget's node picker. The two shaders that also use this texture sample
+   * only its alpha, so they are unaffected.
+   */
   private dotTex() {
     const c = document.createElement("canvas");
     c.width = c.height = 64;
     const x = c.getContext("2d")!;
     x.beginPath();
     x.arc(32, 32, 25, 0, Math.PI * 2);
-    x.fillStyle = "#000";
+    x.fillStyle = "#fff";
     x.fill();
     return new this.T.CanvasTexture(c);
   }
@@ -861,8 +1572,7 @@ export class CognitiveMirrorEngine {
     el.style.cssText = "position:absolute;top:0;left:0;display:block";
     mount.appendChild(el);
 
-    const W = innerWidth;
-    const H = innerHeight;
+    const { w: W, h: H } = this._canvasSize();
     const dpr = Math.min(devicePixelRatio, 2);
     this.renderer = new T.WebGLRenderer({
       canvas: el,
@@ -876,13 +1586,20 @@ export class CognitiveMirrorEngine {
 
     this.scene = new T.Scene();
     this.cam = new T.PerspectiveCamera(52, W / H, 0.1, 200);
-    this.cam.position.z = 5.8;
     this.group = new T.Group();
     this.scene.add(this.group);
 
-    this.uScale = H * dpr * 0.5;
+    this.uScale = H * dpr * 0.5 * this._legibility();
+    this.cam.position.z = this._fitZ();
+    this.targetCamZ = this.cam.position.z;
     this._buildBackground();
     this._buildHalo();
+    // The panel resizes without the window doing so (expand/collapse, sidebars),
+    // and a window `resize` listener alone never hears about it.
+    if (typeof ResizeObserver !== "undefined") {
+      this._ro = new ResizeObserver(() => this._onResize());
+      this._ro.observe(mount);
+    }
     this._rafLoop();
   }
 
@@ -1031,10 +1748,20 @@ export class CognitiveMirrorEngine {
     const nb = this.nmap[bId];
     if (!na || !nb) return null;
     const mid = na.pos.clone().add(nb.pos).multiplyScalar(0.5);
-    const bow = na.pos.distanceTo(nb.pos) * 0.32;
-    mid.normalize().multiplyScalar(Math.min(this.R + bow, this.R + 1.0));
+    // Shell-to-shell arcs bow outward over the surface — the signature look. An
+    // arc touching an interior node keeps close to a straight chord instead, so a
+    // bridge concept reads as wired THROUGH the sphere rather than over it.
+    const shellness = Math.min(na.pos.length(), nb.pos.length()) / this.R;
+    const bow = na.pos.distanceTo(nb.pos) * 0.32 * shellness;
+    if (mid.lengthSq() > 1e-6) mid.setLength(Math.min(mid.length() + bow, this.R + 1.0));
     const curve = new T.QuadraticBezierCurve3(na.pos.clone(), mid, nb.pos.clone());
-    const geo = new T.TubeGeometry(curve, 40, radius, 8, false);
+    const geo = new T.TubeGeometry(
+      curve,
+      40,
+      radius * this.linkWidth * this._legibility(),
+      8,
+      false,
+    );
     const mat = new T.MeshBasicMaterial({
       color: new T.Color(this._arcColor(role)),
       transparent: true,
@@ -1044,7 +1771,7 @@ export class CognitiveMirrorEngine {
     });
     const mesh = new T.Mesh(geo, mat);
     this.group.add(mesh);
-    return { mesh, mat, curve, role };
+    return { mesh, mat, curve, role, base: radius };
   }
 
   // ── render loop ─────────────────────────────────────────────────────────────
@@ -1091,22 +1818,37 @@ export class CognitiveMirrorEngine {
       const sp = this.sprites[id];
       if (this.visited.has(id)) {
         sp.material.opacity = 1;
-        if (!this.nodeFlashes[id]) sp.scale.setScalar(0.17);
+        if (!this.nodeFlashes[id]) sp.scale.setScalar(this._nodeScale(id) * 1.42);
         continue;
       }
       if (this.nodeFlashes[id]) continue;
+      if (!sp.visible) continue;
       const wp = new this.T.Vector3();
       sp.getWorldPosition(wp);
       const facing = wp.clone().normalize().dot(this.cam.position.clone().sub(wp).normalize());
-      sp.material.opacity = Math.max(0.22, Math.min(1, facing + 0.4));
+      // A deep node is seen THROUGH the shell from every angle, so it never fades
+      // out the way a surface node does when it rotates behind.
+      const depth = this.nmap[id]?.depth ?? 0;
+      sp.material.opacity = Math.max(0.22 + 0.34 * depth, Math.min(1, facing + 0.4));
+      if (this.focusId) {
+        // In focus mode the handful of survivors are the whole picture: hold them
+        // at full strength and swell the focused node itself.
+        sp.material.opacity = 1;
+        sp.scale.setScalar(this._nodeScale(id) * (id === this.focusId ? 2.1 : 1.5));
+      }
+    }
+    for (const a of this.focusArcs) {
+      a.mat.opacity = 0.78 + 0.18 * Math.sin(now * 1.6 + a.curve.v1.x);
     }
     if (this.state.callout) {
       const el = document.getElementById("cm-callout");
       const n = this.nmap[this.state.callout.id];
       if (el && n) {
         const v = n.pos.clone().applyQuaternion(this.group.quaternion).project(this.cam);
-        el.style.left = `${(v.x * 0.5 + 0.5) * window.innerWidth}px`;
-        el.style.top = `${(-v.y * 0.5 + 0.5) * window.innerHeight}px`;
+        // Offset by the canvas rect — it is a panel in the corner, not the page.
+        const r = this.renderer.domElement.getBoundingClientRect();
+        el.style.left = `${r.left + (v.x * 0.5 + 0.5) * r.width}px`;
+        el.style.top = `${r.top + (-v.y * 0.5 + 0.5) * r.height}px`;
         el.style.opacity = v.z < 1 ? "1" : "0";
       }
     }
@@ -1157,16 +1899,17 @@ export class CognitiveMirrorEngine {
     for (const [id, f] of Object.entries(this.nodeFlashes)) {
       const t = (now - (f as any).t0) / (f as any).dur;
       const sp = this.sprites[id];
+      const rest = this._nodeScale(id);
       if (t >= 1) {
         if (sp) {
-          sp.scale.setScalar(this.visited.has(id) ? 0.17 : 0.12);
+          sp.scale.setScalar(this.visited.has(id) ? rest * 1.42 : rest);
           sp.material.opacity = 1;
         }
         delete this.nodeFlashes[id];
         continue;
       }
       if (sp) {
-        sp.scale.setScalar(0.12 * (1 + Math.sin(t * Math.PI) * (f as any).pk));
+        sp.scale.setScalar(rest * (1 + Math.sin(t * Math.PI) * (f as any).pk));
         sp.material.opacity = 1;
       }
     }
@@ -1345,13 +2088,16 @@ export class CognitiveMirrorEngine {
       queryState: "querying",
       showAnswer: false,
       noMatch: false,
+      answerGrounded: false,
       queryInput: query,
       traverseStage: "searching your graph",
       traceLines: [],
       callout: null,
       sources: [],
     });
-    this.targetCamZ = this.reduceMotion ? 5.6 : 4.3;
+    // As close as the traversal can get without clipping the shell — the hops
+    // swing nodes to the front, so anything off-frame is a hop you cannot see.
+    this._frame(this.reduceMotion ? 0.95 : FRAME_FLOOR);
     const mount = document.getElementById("cm-canvas-mount");
     if (mount) mount.style.filter = "blur(0px)";
     const h = document.getElementById("cm-hud");
@@ -1374,22 +2120,31 @@ export class CognitiveMirrorEngine {
     } catch {
       /* offline */
     }
-    // Only count a hit if it's actually close — otherwise the "nearest" node is
-    // unrelated and we should admit we don't know rather than fake an answer.
-    const hits = results
-      .filter((hit) => this.nmap[hit.id] && hit.score <= MATCH_MAX_DISTANCE)
-      .slice(0, 6);
+    // Synthesis runs for EVERY question, before any threshold is applied. The
+    // daemon does its own, wider retrieval and says so plainly when it finds
+    // nothing, so gating it behind the sphere's animation threshold only threw
+    // away answers it was perfectly able to give — which is exactly what the
+    // no-match branch used to do to any question phrased as a question.
+    //
+    // Fired now rather than after the animation: the hops take ~3s and a Sonnet
+    // call takes about the same, so running them in parallel is the difference
+    // between an answer that lands with the last hop and one that makes you
+    // wait for a finished animation.
+    this.answerPending = this._synthesise(query);
 
+    const hits = results
+      .filter((hit) => this.nmap[hit.id] && hit.score <= TRAVERSE_MAX_DISTANCE)
+      .slice(0, 6);
+    // Whether anything came close enough that "closest in your graph: X" would
+    // be an honest thing to say if synthesis is unavailable.
+    const close = hits.some((hit) => hit.score <= MATCH_MAX_DISTANCE);
+
+    // Nothing worth walking to. The question can still have a real answer, so
+    // skip the traversal and go straight to the reveal rather than declaring a
+    // dead end before asking.
     if (hits.length === 0) {
       this._returnGL();
-      this.setState({
-        queryState: "answered",
-        showAnswer: true,
-        noMatch: true,
-        answerText: `Nothing in your graph answers “${query}” yet.`,
-        traverseStage: "",
-        sources: [],
-      });
+      void this._revealAnswerLive([], false, false);
       return;
     }
 
@@ -1398,7 +2153,7 @@ export class CognitiveMirrorEngine {
         this.visited.add(hit.id);
       });
       this._returnGL();
-      this._revealAnswerLive(hits, true);
+      void this._revealAnswerLive(hits, true, close);
       return;
     }
 
@@ -1424,7 +2179,22 @@ export class CognitiveMirrorEngine {
       this._returnGL();
       this._traceBackId(hits[hits.length - 1]!.id);
     });
-    at(900, () => this._revealAnswerLive(hits, false));
+    at(900, () => void this._revealAnswerLive(hits, false, close));
+  }
+
+  /** Ask the daemon to answer the question from the graph. Never throws — a
+   *  missing key, a tripped budget or a stopped daemon all resolve to null. */
+  private async _synthesise(question: string): Promise<AnswerDto | null> {
+    try {
+      const res = await fetch("/api/answer", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question }),
+      });
+      return (await res.json()) as AnswerDto;
+    } catch {
+      return null;
+    }
   }
 
   private _visitLive(hit: SearchHit, i: number) {
@@ -1466,29 +2236,83 @@ export class CognitiveMirrorEngine {
     }));
   }
 
-  private _revealAnswerLive(hits: SearchHit[], instant: boolean) {
-    const lead = hits[0]!;
+  /**
+   * Show the answer. `close` says whether any hit was near enough that reading
+   * out the nearest node would be an honest fallback; `hits` may be empty, in
+   * which case there was nothing to walk to but the question can still have an
+   * answer.
+   */
+  private async _revealAnswerLive(hits: SearchHit[], instant: boolean, close: boolean) {
+    const lead = hits[0];
     const others = hits
       .slice(1, 4)
       .map((h) => h.title)
       .join(", ");
-    const full = `Closest in your graph: ${lead.title}. ${lead.summary}${others ? `\n\nIt connects to ${others}.` : ""}`;
+    // What the ask bar said before it could reason: the nearest node, read out.
+    // Still the fallback when synthesis is unavailable — but only when
+    // something was actually close, or "closest in your graph" overstates it.
+    const retrieved =
+      lead && close
+        ? `Closest in your graph: ${lead.title}. ${lead.summary}${others ? `\n\nIt connects to ${others}.` : ""}`
+        : null;
+
+    const gen = this.traversalGen;
+    const pending = this.answerPending;
+    this.answerPending = null;
+    let synth: AnswerDto | null = null;
+    if (pending) {
+      this.setState({ traverseStage: "thinking it through" });
+      synth = await pending;
+      if (this.traversalGen !== gen) return; // replaced while we were waiting
+    }
+    const grounded = Boolean(synth?.ok && synth.answer?.trim());
+    // A grounded answer can still BE "there is nothing here" — explained far
+    // better than the stock line, but the same situation, so it keeps the offer
+    // to go and research the topic.
+    const gap = grounded && synth?.inGraph === false;
+
+    // No synthesis and nothing close enough to read out: now it is a real dead
+    // end, and the honest move is to offer the web rather than to dress up a
+    // distant node as an answer.
+    if (!grounded && !retrieved) {
+      this.setState({
+        queryState: "answered",
+        showAnswer: true,
+        noMatch: true,
+        answerGrounded: false,
+        answerText: `Nothing in your graph answers “${this.lastQuery}” yet.`,
+        traverseStage: "",
+        sources: [],
+      });
+      return;
+    }
+
+    const full = grounded ? (synth?.answer as string) : (retrieved as string);
+    // Cite what the model actually used, when it used anything; an answer that
+    // names the gap cites nothing, and listing the hits under it would imply a
+    // support it just told you it did not have.
+    const cited = grounded ? (synth?.citations ?? []) : [];
+    const sources = grounded
+      ? cited.map((c) => ({ label: c.title, id: c.id }))
+      : hits.map((h) => ({ label: h.title, id: h.id }));
+
     this.setState((s) => ({
       traceLines: [
         ...s.traceLines,
         {
           n: String(hits.length + 1).padStart(2, "0"),
-          label: "RETRIEVED FROM YOUR GRAPH",
+          label: grounded ? "ANSWERED FROM YOUR GRAPH" : "RETRIEVED FROM YOUR GRAPH",
           detail: "",
           accent: this._gold(),
         },
       ],
       queryState: "answered",
       showAnswer: true,
-      noMatch: false,
+      noMatch: gap,
+      answerGrounded: grounded,
       callout: null,
       traverseStage: "",
-      sources: hits.map((h) => ({ label: h.title, id: h.id })),
+      sources,
       answerText: instant ? full : "",
     }));
     if (instant) return;
@@ -1668,11 +2492,14 @@ export class CognitiveMirrorEngine {
   }
 
   private _resetTraversal() {
+    this.traversalGen++;
+    this.answerPending = null;
     if (this._timers)
       this._timers.forEach((id) => {
         clearTimeout(id);
       });
     this._timers = [];
+    this.clearFocus();
     if (this.trail) {
       for (const m of this.trail) {
         this.group?.remove(m);
@@ -1683,11 +2510,11 @@ export class CognitiveMirrorEngine {
     this.visited = new Set();
     this.focusQuat = null;
     this.nodeFlashes = {};
-    for (const id in this.sprites) this.sprites[id].scale.setScalar(0.12);
+    for (const id in this.sprites) this.sprites[id].scale.setScalar(this._nodeScale(id));
   }
 
   private _returnGL() {
-    this.targetCamZ = 5.8;
+    this._frame(1);
     this.focusQuat = null;
     this.setState({ queryState: "returning" });
     const h = document.getElementById("cm-hud");
