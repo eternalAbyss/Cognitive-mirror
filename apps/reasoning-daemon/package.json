@@ -18,7 +18,7 @@
     "@cm/queue": "workspace:*",
     "@cm/shared": "workspace:*",
     "@hono/node-server": "^2.1.0",
-    "hono": "^4.13.2",
+    "hono": "^4.13.11",
     "node-cron": "^4.6.0",
     "rss-parser": "^3.13.0",
     "zod": "^4.4.3"
