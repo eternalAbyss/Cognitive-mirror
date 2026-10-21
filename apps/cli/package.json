@@ -47,7 +47,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.6.2",
     "falkordb": "^6.7.0",
-    "hono": "^4.13.2",
+    "hono": "^4.13.11",
     "next": "^16.3.1",
     "node-cron": "^4.6.0",
     "pino": "^10.3.1",
