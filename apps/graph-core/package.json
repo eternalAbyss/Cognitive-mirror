@@ -12,9 +12,9 @@
   },
   "dependencies": {
     "@cm/shared": "workspace:*",
-    "@hono/node-server": "^2.1.0",
-    "falkordb": "^6.7.0",
-    "hono": "^4.13.2",
-    "zod": "^4.4.3"
+    "@hono/node-server": "^2.1.5",
+    "falkordb": "^6.9.2",
+    "hono": "^4.13.14",
+    "zod": "^4.6.7"
   }
 }
